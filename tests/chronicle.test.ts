@@ -26,6 +26,8 @@ test('chronicle snapshots are deterministic and describe the living world', () =
   assert.ok(Array.isArray(a.chronicle.theories));
   assert.ok(Array.isArray(a.chronicle.wars));
   assert.ok(Array.isArray(a.chronicle.accidents));
+  assert.equal(a.chronicle.deepTime.frames.at(-1)?.year, 10_000_000_000);
+  assert.deepEqual(a.chronicle.deepTime, b.chronicle.deepTime);
 });
 
 test('the chronicle page embeds the scene, people and ledger data', () => {
@@ -36,4 +38,6 @@ test('the chronicle page embeds the scene, people and ledger data', () => {
   assert.match(html, /id="ledger"/);
   assert.ok(html.includes(result.scenario.name));
   assert.ok(html.includes('chronicle'));
+  assert.ok(html.includes('deep time'));
+  assert.ok(html.includes('10,000,000,000'));
 });

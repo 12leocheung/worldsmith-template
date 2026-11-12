@@ -2,6 +2,7 @@ import { Rng } from '../core/rng.ts';
 import { clamp, mean } from '../core/math.ts';
 import { digest } from '../core/registry.ts';
 import { surfaceTemperatureC } from '../cosmos/planet.ts';
+import { buildDeepTimeProjection } from '../cosmos/deep-time.ts';
 import { stateAt } from '../cosmos/orbit.ts';
 import { findBody, resolveSystem, type StarSystem, type SystemBody } from '../cosmos/system.ts';
 import { generateTerrain, neighbouringCells, type Terrain } from '../geo/terrain.ts';
@@ -1056,6 +1057,15 @@ export class World implements SimulationContext {
 
     const planetDistance = this.focusBody.orbit.semiMajorAxisAu;
     const yearsTotal = this.tick * this.yearsPerTick;
+    const deepTime = buildDeepTimeProjection({
+      luminositySolar: this.star.luminositySolar,
+      massSolar: this.star.massSolar,
+      lifetimeGyr: this.star.lifetimeGyr,
+      baseTempC: this.climate.meanTempC,
+      orbitAu: planetDistance,
+      simulationEndYear: yearsTotal,
+      targetYears: 10_000_000_000,
+    });
 
     return {
       scenario: {
@@ -1107,6 +1117,7 @@ export class World implements SimulationContext {
         theories: this.ledger(['theory'], true),
         wars: this.ledger(['war']),
         accidents: this.ledger(['plague', 'accident']),
+        deepTime,
       },
       map: {
         width: this.terrain.width,

@@ -1,4 +1,5 @@
 import { BIOMES, type BiomeId } from '../geo/biomes.ts';
+import type { DeepTimeProjection } from '../cosmos/deep-time.ts';
 import type { RunResult } from './report.ts';
 
 /**
@@ -67,6 +68,8 @@ export interface Chronicle {
   theories: ChronicleEvent[];
   wars: ChronicleEvent[];
   accidents: ChronicleEvent[];
+  /** Astrophysical projection from the end of the simulated run to 10 Gyr. */
+  deepTime: DeepTimeProjection;
 }
 
 const escapeHtml = (text: string): string =>
@@ -241,10 +244,10 @@ export const renderChronicle = (result: RunResult): string => {
         <div class="time-head">
           <button class="pixel" id="play">▶ play</button>
           <b id="year-label">year 0</b>
-          <span class="legend"><i style="background:var(--accent)"></i>technology <i style="background:var(--violet)"></i>theory <i style="background:var(--red)"></i>war <i style="background:var(--pink)"></i>plague / accident</span>
+          <span class="legend"><i style="background:var(--accent)"></i>technology <i style="background:var(--violet)"></i>theory <i style="background:var(--red)"></i>war <i style="background:var(--pink)"></i>plague / accident <i style="background:#ff9f43"></i>deep time</span>
         </div>
         <div class="markers" id="markers"></div>
-        <input type="range" id="time" min="0" max="${chronicle.snapshots.length - 1}" value="0" step="1" />
+        <input type="range" id="time" min="0" max="${chronicle.snapshots.length + (chronicle.deepTime?.frames.length ?? 0) - 1}" value="0" step="1" />
         <div class="legend">drag to move through time · click a marker to jump to an event</div>
       </div>
     </div>
@@ -272,8 +275,10 @@ export const renderChronicle = (result: RunResult): string => {
       </p>
       <p class="sub" style="margin:10px 0 0;font-size:11px">
         Snapshots every ${chronicle.intervalTicks} tick${chronicle.intervalTicks === 1 ? '' : 's'} ·
-        ${chronicle.snapshots.length} frames · ${result.scenario.yearsTotal} simulated years.
-        The report remains the place for charts and full species tables.
+        ${chronicle.snapshots.length} simulated frames · ${result.scenario.yearsTotal} simulated years,
+        then a log-spaced astrophysical projection ${chronicle.deepTime?.frames.length ?? 0} frames out to
+        ${(chronicle.deepTime?.targetYears ?? 10_000_000_000).toLocaleString('en-US')} years.
+        Deep-time frames are a stellar-evolution projection, not a second ecological simulation.
       </p>
     </section>
   </div>
@@ -288,6 +293,21 @@ export const renderChronicle = (result: RunResult): string => {
   var DATA = JSON.parse(document.getElementById('chronicle-data').textContent);
   var C = DATA.chronicle;
   var SNAPS = C.snapshots;
+  var DEEP = C.deepTime || { targetYears: 0, frames: [], events: [] };
+  var LAST = SNAPS[SNAPS.length - 1];
+  var FRAMES = SNAPS.map(function (s) { s.kind = 'history'; return s; });
+  DEEP.frames.forEach(function (f) {
+    FRAMES.push({
+      kind: 'deep', tick: 0, year: f.year, population: 0, settlements: 0,
+      centerCell: LAST.centerCell, place: f.epoch, region: LAST.region, residents: [],
+      epoch: f.epoch, description: f.description, temperatureC: f.temperatureC,
+      luminositySolar: f.luminositySolar, habitable: f.habitable
+    });
+  });
+  var LEDGERS = {
+    technologies: C.technologies, theories: C.theories, wars: C.wars,
+    accidents: C.accidents, epochs: DEEP.events || []
+  };
   var BIOMES = DATA.biomeColors;
   var SPECIES = {};
   DATA.species.forEach(function (s) { SPECIES[s.id] = s; });
@@ -370,7 +390,7 @@ export const renderChronicle = (result: RunResult): string => {
     hitboxes.push({ x: px - 5, y: py - 13, w: 11, h: 17, id: resident.id });
   }
   function drawScene() {
-    var snap = SNAPS[index];
+    var snap = FRAMES[index];
     var region = snap.region;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     var sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
@@ -399,7 +419,7 @@ export const renderChronicle = (result: RunResult): string => {
         }
         var pop = region.population[i] || 0;
         var isCenter = (region.originX + x === region.centerX) && (region.originY + y === region.centerY);
-        if (pop > 0) {
+        if (pop > 0 && snap.kind !== 'deep') {
           var huts = Math.min(3, 1 + Math.floor(pop / 8));
           for (var k = 0; k < huts; k++) {
             var hk = hash(h + k * 37);
@@ -416,6 +436,25 @@ export const renderChronicle = (result: RunResult): string => {
         }
       }
     }
+    if (snap.kind === 'deep') {
+      var heat = Math.max(0, Math.min(0.62, (snap.temperatureC - 10) / 170));
+      if (heat > 0) {
+        ctx.fillStyle = 'rgba(200,64,32,' + heat + ')';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      if (snap.habitable) {
+        ctx.fillStyle = 'rgba(48,120,80,.10)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      ctx.fillStyle = '#ffd166';
+      ctx.font = '10px "Courier New", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('DEEP TIME · ' + String(snap.epoch).toUpperCase(), canvas.width / 2, 18);
+      ctx.fillStyle = '#e8f0f2';
+      ctx.fillText(formatYear(snap.year) + ' YEARS · ' + snap.temperatureC.toFixed(0) + ' °C', canvas.width / 2, 31);
+      ctx.textAlign = 'left';
+      return;
+    }
     var residents = snap.residents.slice().sort(function (a, b) {
       return (a.cell % MAP_WIDTH) - (b.cell % MAP_WIDTH) || Math.floor(a.cell / MAP_WIDTH) - Math.floor(b.cell / MAP_WIDTH);
     });
@@ -425,28 +464,41 @@ export const renderChronicle = (result: RunResult): string => {
       if (tx >= 0 && ty >= 0 && tx < region.width && ty < region.height) drawAgent(r, tx, ty, r.id === selectedId);
     });
   }
-  function currentSnap() { return SNAPS[index]; }
+  function currentSnap() { return FRAMES[index]; }
+  function formatYear(year) {
+    if (year >= 1e9) return (year / 1e9).toFixed(year >= 1e10 ? 0 : 1) + ' Gyr';
+    if (year >= 1e6) return (year / 1e6).toFixed(1) + ' Myr';
+    if (year >= 1e4) return (year / 1e3).toFixed(1) + ' kyr';
+    return Math.round(year).toLocaleString() + ' y';
+  }
   function nearestIndexForYear(year) {
     var best = 0, diff = Infinity;
-    for (var i = 0; i < SNAPS.length; i++) {
-      var d = Math.abs(SNAPS[i].year - year);
+    for (var i = 0; i < FRAMES.length; i++) {
+      var d = Math.abs(FRAMES[i].year - year);
       if (d < diff) { diff = d; best = i; }
     }
     return best;
   }
   function renderStats() {
     var s = currentSnap();
-    document.getElementById('stat-pop').textContent = s.population.toLocaleString();
-    document.getElementById('stat-settlements').textContent = s.settlements.toLocaleString();
+    document.getElementById('stat-pop').textContent = s.kind === 'deep' ? '0' : s.population.toLocaleString();
+    document.getElementById('stat-settlements').textContent = s.kind === 'deep' ? '—' : s.settlements.toLocaleString();
     document.getElementById('stat-year').textContent = s.year.toLocaleString();
-    document.getElementById('stat-species').textContent = String(DATA.species.length);
-    document.getElementById('place').textContent = '◎ ' + s.place + ' · the largest settlement in this frame';
+    document.getElementById('stat-species').textContent = s.kind === 'deep' ? '—' : String(DATA.species.length);
+    document.getElementById('place').textContent = s.kind === 'deep'
+      ? '◎ ' + s.epoch + ' · astrophysical projection'
+      : '◎ ' + s.place + ' · the largest settlement in this frame';
     document.getElementById('year-label').textContent = 'year ' + s.year.toLocaleString();
     document.getElementById('time').value = String(index);
   }
   function renderPeople() {
     var s = currentSnap();
     var holder = document.getElementById('people');
+    if (s.kind === 'deep') {
+      document.getElementById('people-count').textContent = '(deep time)';
+      holder.innerHTML = '<p class="empty">No living residents in this astrophysical epoch.</p>';
+      return;
+    }
     document.getElementById('people-count').textContent = '(' + s.residents.length + ' shown)';
     holder.innerHTML = '';
     s.residents.forEach(function (r) {
@@ -464,6 +516,12 @@ export const renderChronicle = (result: RunResult): string => {
   function renderDetail() {
     var s = currentSnap();
     var holder = document.getElementById('detail');
+    if (s.kind === 'deep') {
+      holder.innerHTML = '<h3>' + s.epoch + '</h3><p class="species">' + formatYear(s.year) + ' from now · deep time</p>' +
+        '<p>' + s.description + '</p><p>Surface ' + s.temperatureC.toFixed(1) + ' °C · luminosity ' +
+        s.luminositySolar.toFixed(3) + ' L☉ · ' + (s.habitable ? 'habitable window' : 'outside the habitable window') + '.</p>';
+      return;
+    }
     var r = null;
     if (selectedId !== null) {
       for (var i = 0; i < s.residents.length; i++) if (s.residents[i].id === selectedId) { r = s.residents[i]; break; }
@@ -483,18 +541,19 @@ export const renderChronicle = (result: RunResult): string => {
   function renderMarkers() {
     var holder = document.getElementById('markers');
     holder.innerHTML = '';
-    var maxYear = Math.max(1, DATA.scenario.yearsTotal);
+    var maxIndex = Math.max(1, FRAMES.length - 1);
     var groups = [
       { list: C.technologies, color: '#7ef0c0' },
       { list: C.theories, color: '#c3a6ff' },
       { list: C.wars, color: '#ff6b6b' },
-      { list: C.accidents, color: '#f48fb1' }
+      { list: C.accidents, color: '#f48fb1' },
+      { list: DEEP.events, color: '#ff9f43' }
     ];
     groups.forEach(function (group) {
       group.list.slice(0, 80).forEach(function (e) {
         var m = document.createElement('button');
         m.className = 'marker';
-        m.style.left = Math.max(0, Math.min(99.5, (e.year / maxYear) * 100)) + '%';
+        m.style.left = Math.max(0, Math.min(99.5, (nearestIndexForYear(e.year) / maxIndex) * 100)) + '%';
         m.style.background = group.color;
         m.title = 'Year ' + e.year + ' · ' + e.title;
         m.addEventListener('click', function () { jump(e.year); });
@@ -507,20 +566,21 @@ export const renderChronicle = (result: RunResult): string => {
       ['technologies', 'technologies'],
       ['theories', 'theories'],
       ['wars', 'wars'],
-      ['accidents', 'plagues & accidents']
+      ['accidents', 'plagues & accidents'],
+      ['epochs', 'deep time']
     ];
     var tabHolder = document.getElementById('tabs');
     tabHolder.innerHTML = '';
     tabs.forEach(function (t) {
       var b = document.createElement('button');
       b.className = 'tab' + (activeTab === t[0] ? ' active' : '');
-      b.textContent = t[1] + ' (' + C[t[0]].length + ')';
+      b.textContent = t[1] + ' (' + LEDGERS[t[0]].length + ')';
       b.addEventListener('click', function () { activeTab = t[0]; renderLedger(); });
       tabHolder.appendChild(b);
     });
     var holder = document.getElementById('ledger');
     holder.innerHTML = '';
-    var entries = C[activeTab] || [];
+    var entries = LEDGERS[activeTab] || [];
     if (!entries.length) {
       holder.innerHTML = '<p class="empty">Nothing recorded in this category for this run.</p>';
       return;
@@ -536,10 +596,10 @@ export const renderChronicle = (result: RunResult): string => {
   }
   function renderAll() { drawScene(); renderStats(); renderPeople(); renderDetail(); }
   function setIndex(i) {
-    index = Math.max(0, Math.min(SNAPS.length - 1, i));
+    index = Math.max(0, Math.min(FRAMES.length - 1, i));
     if (selectedId !== null) {
       var found = false;
-      for (var k = 0; k < SNAPS[index].residents.length; k++) if (SNAPS[index].residents[k].id === selectedId) found = true;
+      for (var k = 0; k < FRAMES[index].residents.length; k++) if (FRAMES[index].residents[k].id === selectedId) found = true;
       if (!found) selectedId = null;
     }
     renderAll();
@@ -566,10 +626,12 @@ export const renderChronicle = (result: RunResult): string => {
       var cellIndex = ty * s.region.width + tx;
       var cell = (s.region.originY + ty) * MAP_WIDTH + (s.region.originX + tx);
       var biome = s.region.biome[cellIndex];
-      var pop = s.region.population[cellIndex] || 0;
+      var pop = s.kind === 'deep' ? 0 : (s.region.population[cellIndex] || 0);
       document.getElementById('detail').innerHTML = '<h3>Tile ' + (s.region.originX + tx) + ',' + (s.region.originY + ty) + '</h3>' +
         '<p class="species">' + biome + ' · ' + pop + ' people here · cell ' + cell + '</p>' +
-        '<p>Huts show where people live; the gold flag marks the frame\\'s largest settlement. Click a person to inspect them.</p>';
+        (s.kind === 'deep'
+          ? '<p>This is the same region projected into deep time. The surface is ' + s.temperatureC.toFixed(0) + ' °C.</p>'
+          : '<p>Huts show where people live; the gold flag marks the frame\\'s largest settlement. Click a person to inspect them.</p>');
     }
   });
   document.getElementById('time').addEventListener('input', function (e) { setIndex(Number(e.target.value)); });
@@ -581,7 +643,7 @@ export const renderChronicle = (result: RunResult): string => {
     }
     button.textContent = '❚❚ pause'; button.classList.remove('ghost');
     timer = setInterval(function () {
-      if (index >= SNAPS.length - 1) {
+      if (index >= FRAMES.length - 1) {
         clearInterval(timer); timer = null;
         button.textContent = '▶ play'; button.classList.add('ghost');
         return;
@@ -593,6 +655,7 @@ export const renderChronicle = (result: RunResult): string => {
     if (e.key === 'ArrowRight') setIndex(index + 1);
     if (e.key === 'ArrowLeft') setIndex(index - 1);
   });
+  document.getElementById('time').max = String(FRAMES.length - 1);
   renderMarkers();
   renderLedger();
   setIndex(0);

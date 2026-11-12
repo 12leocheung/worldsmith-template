@@ -45,6 +45,14 @@ not silently change the energy budget, but temporal resolution is genuinely lowe
    The metrics step also samples a chronicle frame (people, settlement region, actions)
    every `ceil(ticks / 50)` ticks.
 
+After the tick loop, `buildDeepTimeProjection` extends the chronicle timeline from the
+last simulated year to 10 Gyr with 36 log-spaced frames. This is an explicit astrophysical
+projection, not another ecology: main-sequence luminosity grows as
+`L0 · (1 + 0.08 · massSolar · Gyr)`, surface temperature follows Stefan-Boltzmann scaling,
+and the star leaves the main sequence at `lifetimeGyr`, becoming a red giant. Thresholds at
+47 °C, 100 °C and 150 °C date the moist greenhouse, ocean loss and biosphere collapse; no
+new individuals are simulated in deep-time frames.
+
 First collective discoveries are emitted when a species' knowledge union gains a
 technology: `technology` for practical knowledge and `theory` for mathematics, germ
 theory, the scientific method and genetics. Per-individual attempts are deliberately
