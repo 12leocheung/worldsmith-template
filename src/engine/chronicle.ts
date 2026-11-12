@@ -552,7 +552,11 @@ export const renderChronicle = (result: RunResult): string => {
       for (var i = 0; i < s.residents.length; i++) if (s.residents[i].id === selectedId) { r = s.residents[i]; break; }
     }
     if (!r) {
+      var techLine = s.kind === 'future' && s.technologies && s.technologies.length
+        ? '<p><b>Technologies:</b> ' + s.technologies.join(' · ') + '</p>'
+        : '';
       holder.innerHTML = '<h3>' + s.place + '</h3><p class="species">' + (s.kind === 'future' ? s.era + ' · ' : '') + s.year + ' years · ' + s.population.toLocaleString() + ' people</p>' +
+        techLine +
         '<p>' + (s.kind === 'future' ? s.description : 'Click a pixel person in the scene or pick a name to see what they are doing. The highlighted tile is the largest settlement in this frame.') + '</p>';
       return;
     }

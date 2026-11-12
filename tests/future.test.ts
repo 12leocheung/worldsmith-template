@@ -51,7 +51,13 @@ test('future history is deterministic and populated past the historical run', ()
   assert.ok(present, '2026 is explicitly represented');
   assert.ok((present?.population ?? 0) > 0);
   assert.ok((present?.residents.length ?? 0) > 0);
-  assert.ok(a.events.some((event) => event.year === 2026 && event.title === 'The present day'));
+  assert.ok(present?.technologies.includes('Cars'));
+  assert.ok(present?.technologies.includes('Computers'));
+  assert.ok(present?.technologies.includes('Artificial intelligence (AI)'));
+  assert.match(present?.description ?? '', /Cars, computers, the internet/);
+  const presentEvent = a.events.find((event) => event.year === 2026 && event.title === 'The present day');
+  assert.ok(presentEvent);
+  assert.match(presentEvent?.detail ?? '', /cars, computers, the internet/);
 });
 
 test('future technology rises monotonically and frames keep their residents', () => {

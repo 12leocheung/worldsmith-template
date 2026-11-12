@@ -62,6 +62,8 @@ export interface FutureFrame {
   habitable: boolean;
   era: string;
   techLevel: number;
+  /** Concrete technologies visible in this era. */
+  technologies: string[];
   population: number;
   settlements: number;
   centerCell: number;
@@ -150,16 +152,27 @@ interface ActionChoice {
   label: string;
 }
 
-const TECH_KNOWLEDGE = [
-  ['Fire', 'Stone tools'],
-  ['Agriculture', 'Pottery'],
-  ['Writing', 'Metallurgy'],
-  ['Steam power', 'Sanitation'],
-  ['Computing', 'Medicine'],
-  ['Fusion', 'Closed habitats'],
-  ['Orbital industry', 'Survey craft'],
-  ['Stellar engineering', 'Deep archives'],
-  ['Mind engineering', 'Dormant archives'],
+const ERA_TECHNOLOGIES = [
+  ['Fire', 'Stone tools', 'Language'],
+  ['Agriculture', 'Pottery', 'Weaving'],
+  ['Writing', 'Metallurgy', 'The wheel'],
+  ['Steam engines', 'Railways', 'Telegraph', 'Factories'],
+  ['Electricity', 'Cars', 'Computers', 'Internet', 'Antibiotics'],
+  ['Artificial intelligence (AI)', 'Robotics', 'Fusion power', 'Gene editing', 'Reusable spaceflight'],
+  ['Orbital habitats', 'Closed-loop ecology', 'Asteroid mining'],
+  ['Stellar engineering', 'Star lifting', 'Interstellar probes'],
+  ['Mind uploading', 'Synthetic minds', 'Dyson swarms'],
+] as const;
+
+/** The 2026 anchor is deliberately concrete, whatever the coarse era model says. */
+const PRESENT_TECHNOLOGIES = [
+  'Electricity',
+  'Cars',
+  'Computers',
+  'Internet',
+  'Smartphones',
+  'Artificial intelligence (AI)',
+  'Antibiotics',
 ] as const;
 
 const SAPIENT_ACTIONS: readonly (readonly ActionChoice[])[] = [
@@ -228,6 +241,7 @@ const buildResidents = (
   frameIndex: number,
   population: number,
   techLevel: number,
+  technologies: readonly string[],
   options: FutureHistoryOptions,
   region: FutureRegion,
   rng: Rng,
@@ -259,9 +273,7 @@ const buildResidents = (
       cellWeights.length > 0
         ? cellWeights[rng.weightedIndex(cellWeights.map((entry) => entry.weight))]
         : { cell: options.centerCell };
-    const known = species.sapient
-      ? [...(TECH_KNOWLEDGE[Math.min(techLevel, TECH_KNOWLEDGE.length - 1)] ?? TECH_KNOWLEDGE[0])]
-      : [];
+    const known = species.sapient ? technologies.slice(0, 4) : [];
 
     residents.push({
       id,
@@ -310,6 +322,7 @@ export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory
     const deltaYears = Math.max(1, year - previousYear);
     const state = deepTimeStateAt(options.deepTime, year);
     const wasPopulated = population > 0;
+    const presentDay = year === 2026 && sapient;
 
     if (population > 0 && sapient && techLevel < TECH_ERAS.length - 1) {
       const progressChance = clamp(deltaYears / 500, 0, 0.6);
@@ -322,6 +335,13 @@ export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory
         });
       }
     }
+
+    if (presentDay && techLevel < 4) techLevel = 4;
+    const technologies = !sapient
+      ? []
+      : presentDay
+        ? [...PRESENT_TECHNOLOGIES]
+        : [...(ERA_TECHNOLOGIES[Math.min(techLevel, ERA_TECHNOLOGIES.length - 1)] ?? ERA_TECHNOLOGIES[0])];
 
     const carrier = Math.max(0, initialPopulation * (1.1 + 0.55 * techLevel) * habitatFactor(state.temperatureC, state.epoch));
     let nextPopulation = carrier > 0 && population > 0 ? logistic(population, carrier, 0.0009, deltaYears) : 0;
@@ -358,9 +378,14 @@ export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory
       ...options.region,
       population: options.region.population.map((count) => Math.max(0, Math.round(count * scale))),
     };
-    const era = population > 0 ? (sapient ? TECH_ERAS[techLevel] ?? TECH_ERAS[0] : 'Wild biosphere') : 'Silent world';
+    const era = population > 0
+      ? (sapient ? (presentDay ? TECH_ERAS[4] : TECH_ERAS[techLevel] ?? TECH_ERAS[0]) : 'Wild biosphere')
+      : 'Silent world';
+    const presentDetail = presentDay
+      ? 'Cars, computers, the internet and artificial intelligence are part of daily life. '
+      : '';
     const description = population > 0
-      ? `${era}: ${population.toLocaleString('en-US')} people across ${settlements.toLocaleString('en-US')} settlements. ${state.description}`
+      ? `${era}: ${population.toLocaleString('en-US')} people across ${settlements.toLocaleString('en-US')} settlements. ${presentDetail}${state.description}`
       : `${state.description} No settlements remain.`;
 
     frames.push({
@@ -374,12 +399,13 @@ export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory
       habitable: state.habitable,
       era,
       techLevel,
+      technologies,
       population,
       settlements,
       centerCell: options.centerCell,
       place: settlementName(options.centerCell, options.seed),
       region,
-      residents: population > 0 ? buildResidents(frameIndex, population, techLevel, options, region, rng) : [],
+      residents: population > 0 ? buildResidents(frameIndex, population, techLevel, technologies, options, region, rng) : [],
     });
     previousYear = year;
   });
@@ -389,7 +415,7 @@ export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory
     events.push({
       year: 2026,
       title: 'The present day',
-      detail: `${dominant?.name ?? 'The dominant lineage'} descendants are still alive; the projection continues past the simulated centuries.`,
+      detail: `${dominant?.name ?? 'The dominant lineage'} descendants are still alive; cars, computers, the internet and artificial intelligence are part of daily life. The projection continues past the simulated centuries.`,
     });
   }
 
