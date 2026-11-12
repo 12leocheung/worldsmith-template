@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDeepTimeProjection } from '../src/cosmos/deep-time.ts';
+import { buildDeepTimeProjection, deepTimeStateAt } from '../src/cosmos/deep-time.ts';
 import earthlike from '../scenarios/earthlike.ts';
 import { World } from '../src/engine/world.ts';
 
@@ -69,6 +69,22 @@ test('a long-lived low-mass star keeps its planet through ten billion years', ()
   assert.ok(!titles.includes('Planet engulfed'));
   const last = projection.frames.at(-1);
   assert.ok(last && last.temperatureC < 100, 'the slow-brightening star does not boil the planet');
+});
+
+test('a low-luminosity star is not artificially overheated by the luminosity floor', () => {
+  const state = deepTimeStateAt(
+    {
+      luminositySolar: 0.015,
+      massSolar: 0.3,
+      lifetimeGyr: 200,
+      baseTempC: 29,
+      orbitAu: 0.2,
+      simulationEndYear: 300,
+    },
+    2026,
+  );
+  assert.ok(state.temperatureC < 40, `expected a temperate M-dwarf surface, got ${state.temperatureC}`);
+  assert.ok(state.habitable);
 });
 
 test('every generated world carries a deep-time projection ending at ten billion years', () => {

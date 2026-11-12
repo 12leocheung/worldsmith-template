@@ -28,7 +28,7 @@ npm run sim -- list         # list the experiment scenarios
 npm run sim -- inspect scenarios/earthlike.ts
 npm run sim -- run scenarios/earthlike.ts
 npm run sim -- compare scenarios/earthlike.ts scenarios/hypercognitive.ts --ticks 200
-npm test                    # 45 tests
+npm test                    # 50 tests
 npm run typecheck
 ```
 
@@ -39,9 +39,9 @@ A run writes four artefacts to `runs/<scenario>-s<seed>/`:
 | `run.json` | Complete result: configuration, planetary setting, time series, species summaries, events, chronicle snapshots, surface map, state digest |
 | `report.md` | Human-readable report with physical setting, outcome, species, time series, death causes, behaviour mix |
 | `report.html` | Self-contained visual report: population chart, culture/cognition chart, biome map with settlements, species table |
-| `chronicle.html` | Pixel-isometric chronicle: scrubbable timeline, clickable residents and their actions, ledgers of technologies, theories, wars and disease/accident outbreaks, and a deep-time projection to 10 billion years |
+| `chronicle.html` | Pixel-isometric chronicle: scrubbable timeline, clickable residents and their actions, ledgers of technologies, theories, wars and disease/accident outbreaks, and a simulated future history to 10 billion years |
 
-All three HTML/JSON artefacts open directly in a browser; the HTML files have no external dependencies. The chronicle samples up to 51 frames and 36 residents per frame from the underlying individual simulation, so the page stays small while every sprite is a real simulated person or animal. After the simulated centuries it appends 36 log-spaced deep-time frames to 10,000,000,000 years: a deterministic stellar-evolution projection (main-sequence brightening, runaway greenhouse, red giant, remnant) rather than a second ecological simulation.
+All three HTML/JSON artefacts open directly in a browser; the HTML files have no external dependencies. The chronicle samples up to 51 frames and 36 residents per frame from the underlying individual simulation, so the page stays small while every sprite is a real simulated person or animal. After the simulated centuries it continues with a seeded future-history model: population, settlements and technology are integrated with logistic growth, carrying capacity and stochastic plagues, wars, golden ages and climate shocks. Near-future frames include 2026; later frames are log-spaced out to 10,000,000,000 years. The future is coarse (one step per frame, not one tick per person), deterministic for a given seed, and visibly different across seeds. People remain until the surface becomes genuinely uninhabitable.
 
 ## Repository map
 

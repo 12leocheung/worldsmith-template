@@ -1,23 +1,26 @@
 /**
  * Deep-time projection for a chronicle.
  *
- * The ecological simulation runs for centuries, not gigayears. This module extends
- * the *timeline* with a deliberately simple astrophysical model: a main-sequence star
+ * The ecological simulation runs for centuries, not gigayears. This module supplies
+ * the astrophysical environment for the rest of the timeline: a main-sequence star
  * brightens as it consumes hydrogen, the planet's equilibrium temperature follows
  * Stefan-Boltzmann scaling, and the star leaves the main sequence at the end of its
- * modelled lifetime. It is a projection, not a second ecology: no new people are
- * simulated in these frames.
+ * modelled lifetime.
  *
- * Keeping this separate from `World` makes the assumption explicit and testable.
+ * The population that lives through these years is simulated separately in
+ * `src/society/future.ts`; this module is only the physical stage.
  */
 
-export interface DeepTimeFrame {
-  year: number;
+export interface DeepTimeState {
+  luminositySolar: number;
+  temperatureC: number;
+  habitable: boolean;
   epoch: string;
   description: string;
-  temperatureC: number;
-  luminositySolar: number;
-  habitable: boolean;
+}
+
+export interface DeepTimeFrame extends DeepTimeState {
+  year: number;
 }
 
 export interface DeepTimeEvent {
@@ -53,6 +56,52 @@ export interface DeepTimeOptions {
 
 const KELVIN_OFFSET = 273.15;
 
+/**
+ * Physical state at one future year. Kept public so the future-history model can
+ * evaluate the same star and climate at arbitrary dates, including near-future years
+ * that are not part of the coarse log-spaced frame set.
+ */
+export const deepTimeStateAt = (options: DeepTimeOptions, year: number): DeepTimeState => {
+  const lifetimeYears = Math.max(1, options.lifetimeGyr) * 1_000_000_000;
+  const baseKelvin = options.baseTempC + KELVIN_OFFSET;
+  const luminositySolar =
+    year >= lifetimeYears
+      ? Math.max(800, options.luminositySolar * 900)
+      : Math.max(1e-6, options.luminositySolar * (1 + 0.08 * options.massSolar * (year / 1_000_000_000)));
+  const ratio = luminositySolar / Math.max(1e-9, options.luminositySolar);
+  const temperatureC = baseKelvin * ratio ** 0.25 - KELVIN_OFFSET;
+  const habitable = year < lifetimeYears && temperatureC > -20 && temperatureC < 47;
+
+  let epoch: string;
+  if (year >= lifetimeYears + 1_000_000_000) epoch = 'Stellar remnant';
+  else if (year >= lifetimeYears) epoch = 'Red giant';
+  else if (temperatureC >= 150) epoch = 'Sterile';
+  else if (temperatureC >= 100) epoch = 'Boiling oceans';
+  else if (temperatureC >= 47) epoch = 'Runaway greenhouse';
+  else if (year >= 1_000_000_000) epoch = 'Late main sequence';
+  else if (year >= 1_000_000) epoch = 'Geological';
+  else if (year >= 10_000) epoch = 'Near future';
+  else epoch = 'Historical';
+
+  let description: string;
+  if (year >= lifetimeYears + 1_000_000_000) {
+    description = 'The star has exhausted its core fuel and faded to a compact remnant. The planet is a cold, airless rock.';
+  } else if (year >= lifetimeYears) {
+    description = 'Core hydrogen is exhausted. The star expands into a red giant and the planet is scorched or engulfed.';
+  } else if (temperatureC >= 150) {
+    description = `Surface temperature is ${temperatureC.toFixed(0)} °C. Oceans are gone and complex life cannot persist.`;
+  } else if (temperatureC >= 100) {
+    description = `Surface temperature is ${temperatureC.toFixed(0)} °C. The oceans are boiling away into steam.`;
+  } else if (temperatureC >= 47) {
+    description = `Surface temperature is ${temperatureC.toFixed(0)} °C. A moist greenhouse is underway; the habitable window is closing.`;
+  } else {
+    const trend = habitable ? 'The biosphere remains viable' : 'The surface is outside the habitable window';
+    description = `${trend}. Stellar luminosity is ${luminositySolar.toFixed(3)} L☉ and the mean surface is ${temperatureC.toFixed(1)} °C.`;
+  }
+
+  return { luminositySolar, temperatureC, habitable, epoch, description };
+};
+
 /** First log-spaced year at or above a threshold, for dating a crossing. */
 const crossingYear = (
   frames: readonly DeepTimeFrame[],
@@ -63,77 +112,22 @@ const crossingYear = (
 };
 
 /**
- * Project temperature and stellar state from the end of the simulation to the target
- * horizon. The brightening rate is mass-dependent: a solar-mass star gains roughly
- * 8% luminosity per gigayear, while low-mass stars brighten more slowly.
+ * Build the astrophysical frame set. The brightening rate is mass-dependent: a
+ * solar-mass star gains roughly 8% luminosity per gigayear, while low-mass stars
+ * brighten more slowly.
  */
 export const buildDeepTimeProjection = (options: DeepTimeOptions): DeepTimeProjection => {
   const targetYears = options.targetYears ?? 10_000_000_000;
   const startYear = Math.max(1, options.simulationEndYear);
   const frameCount = Math.max(8, options.frameCount ?? 36);
   const lifetimeYears = Math.max(1, options.lifetimeGyr) * 1_000_000_000;
-  const baseKelvin = options.baseTempC + KELVIN_OFFSET;
   const orbitAu = Math.max(0.01, options.orbitAu);
-
-  const luminosityAt = (year: number): number => {
-    if (year >= lifetimeYears) return Math.max(800, options.luminositySolar * 900);
-    const gigayears = year / 1_000_000_000;
-    return Math.max(0.1, options.luminositySolar * (1 + 0.08 * options.massSolar * gigayears));
-  };
-
-  const temperatureAt = (year: number): number => {
-    const ratio = luminosityAt(year) / Math.max(1e-9, options.luminositySolar);
-    return baseKelvin * ratio ** 0.25 - KELVIN_OFFSET;
-  };
-
-  const epochAt = (year: number, temperatureC: number): string => {
-    if (year >= lifetimeYears + 1_000_000_000) return 'Stellar remnant';
-    if (year >= lifetimeYears) return 'Red giant';
-    if (temperatureC >= 150) return 'Sterile';
-    if (temperatureC >= 100) return 'Boiling oceans';
-    if (temperatureC >= 47) return 'Runaway greenhouse';
-    if (year >= 1_000_000_000) return 'Late main sequence';
-    if (year >= 1_000_000) return 'Geological';
-    if (year >= 10_000) return 'Near future';
-    return 'Historical';
-  };
-
-  const descriptionAt = (year: number, temperatureC: number, luminositySolar: number, habitat: boolean): string => {
-    if (year >= lifetimeYears + 1_000_000_000) {
-      return 'The star has exhausted its core fuel and faded to a compact remnant. The planet is a cold, airless rock.';
-    }
-    if (year >= lifetimeYears) {
-      return 'Core hydrogen is exhausted. The star expands into a red giant and the planet is scorched or engulfed.';
-    }
-    if (temperatureC >= 150) {
-      return `Surface temperature is ${temperatureC.toFixed(0)} °C. Oceans are gone and complex life cannot persist.`;
-    }
-    if (temperatureC >= 100) {
-      return `Surface temperature is ${temperatureC.toFixed(0)} °C. The oceans are boiling away into steam.`;
-    }
-    if (temperatureC >= 47) {
-      return `Surface temperature is ${temperatureC.toFixed(0)} °C. A moist greenhouse is underway; the habitable window is closing.`;
-    }
-    const trend = habitat ? 'The biosphere remains viable' : 'The surface is outside the habitable window';
-    return `${trend}. Stellar luminosity is ${luminositySolar.toFixed(3)} L☉ and the mean surface is ${temperatureC.toFixed(1)} °C.`;
-  };
 
   const frames: DeepTimeFrame[] = [];
   for (let index = 1; index <= frameCount; index++) {
     const fraction = index / frameCount;
     const year = Math.round(startYear * (targetYears / startYear) ** fraction);
-    const luminositySolar = luminosityAt(year);
-    const temperatureC = temperatureAt(year);
-    const habitable = year < lifetimeYears && temperatureC > -20 && temperatureC < 47;
-    const epoch = epochAt(year, temperatureC);
-    frames.push({
-      year,
-      epoch,
-      description: descriptionAt(year, temperatureC, luminositySolar, habitable),
-      temperatureC,
-      luminositySolar,
-      habitable,
-    });
+    frames.push({ year, ...deepTimeStateAt(options, year) });
   }
 
   const events: DeepTimeEvent[] = [];

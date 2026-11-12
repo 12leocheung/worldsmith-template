@@ -1,5 +1,6 @@
 import { BIOMES, type BiomeId } from '../geo/biomes.ts';
 import type { DeepTimeProjection } from '../cosmos/deep-time.ts';
+import type { FutureHistory } from '../society/future.ts';
 import type { RunResult } from './report.ts';
 
 /**
@@ -70,6 +71,8 @@ export interface Chronicle {
   accidents: ChronicleEvent[];
   /** Astrophysical projection from the end of the simulated run to 10 Gyr. */
   deepTime: DeepTimeProjection;
+  /** Simulated future population, settlements, technology and events. */
+  future: FutureHistory;
 }
 
 const escapeHtml = (text: string): string =>
@@ -244,10 +247,10 @@ export const renderChronicle = (result: RunResult): string => {
         <div class="time-head">
           <button class="pixel" id="play">▶ play</button>
           <b id="year-label">year 0</b>
-          <span class="legend"><i style="background:var(--accent)"></i>technology <i style="background:var(--violet)"></i>theory <i style="background:var(--red)"></i>war <i style="background:var(--pink)"></i>plague / accident <i style="background:#ff9f43"></i>deep time</span>
+          <span class="legend"><i style="background:var(--accent)"></i>technology <i style="background:var(--violet)"></i>theory <i style="background:var(--red)"></i>war <i style="background:var(--pink)"></i>plague / accident <i style="background:#ff9f43"></i>future history</span>
         </div>
         <div class="markers" id="markers"></div>
-        <input type="range" id="time" min="0" max="${chronicle.snapshots.length + (chronicle.deepTime?.frames.length ?? 0) - 1}" value="0" step="1" />
+        <input type="range" id="time" min="0" max="${chronicle.snapshots.length + (chronicle.future?.frames.length || chronicle.deepTime?.frames.length || 0) - 1}" value="0" step="1" />
         <div class="legend">drag to move through time · click a marker to jump to an event</div>
       </div>
     </div>
@@ -276,9 +279,10 @@ export const renderChronicle = (result: RunResult): string => {
       <p class="sub" style="margin:10px 0 0;font-size:11px">
         Snapshots every ${chronicle.intervalTicks} tick${chronicle.intervalTicks === 1 ? '' : 's'} ·
         ${chronicle.snapshots.length} simulated frames · ${result.scenario.yearsTotal} simulated years,
-        then a log-spaced astrophysical projection ${chronicle.deepTime?.frames.length ?? 0} frames out to
+        then ${chronicle.future?.frames.length ?? 0} future-history frames out to
         ${(chronicle.deepTime?.targetYears ?? 10_000_000_000).toLocaleString('en-US')} years.
-        Deep-time frames are a stellar-evolution projection, not a second ecological simulation.
+        The future is a coarse, seeded population-and-technology simulation, not a second
+        individual-level ecology; people persist until the surface becomes uninhabitable.
       </p>
     </section>
   </div>
@@ -294,19 +298,24 @@ export const renderChronicle = (result: RunResult): string => {
   var C = DATA.chronicle;
   var SNAPS = C.snapshots;
   var DEEP = C.deepTime || { targetYears: 0, frames: [], events: [] };
+  var FUTURE = C.future || { frames: [], events: [] };
   var LAST = SNAPS[SNAPS.length - 1];
   var FRAMES = SNAPS.map(function (s) { s.kind = 'history'; return s; });
-  DEEP.frames.forEach(function (f) {
-    FRAMES.push({
-      kind: 'deep', tick: 0, year: f.year, population: 0, settlements: 0,
-      centerCell: LAST.centerCell, place: f.epoch, region: LAST.region, residents: [],
-      epoch: f.epoch, description: f.description, temperatureC: f.temperatureC,
-      luminositySolar: f.luminositySolar, habitable: f.habitable
+  FUTURE.frames.forEach(function (f) { f.kind = 'future'; FRAMES.push(f); });
+  if (!FUTURE.frames.length) {
+    DEEP.frames.forEach(function (f) {
+      FRAMES.push({
+        kind: 'deep', tick: 0, year: f.year, population: 0, settlements: 0,
+        centerCell: LAST.centerCell, place: f.epoch, region: LAST.region, residents: [],
+        epoch: f.epoch, description: f.description, temperatureC: f.temperatureC,
+        luminositySolar: f.luminositySolar, habitable: f.habitable
+      });
     });
-  });
+  }
+  var FUTURE_EVENTS = (DEEP.events || []).concat(FUTURE.events || []).sort(function (a, b) { return a.year - b.year; });
   var LEDGERS = {
     technologies: C.technologies, theories: C.theories, wars: C.wars,
-    accidents: C.accidents, epochs: DEEP.events || []
+    accidents: C.accidents, epochs: FUTURE_EVENTS
   };
   var BIOMES = DATA.biomeColors;
   var SPECIES = {};
@@ -463,6 +472,20 @@ export const renderChronicle = (result: RunResult): string => {
       var ty = Math.floor(r.cell / MAP_WIDTH) - region.originY;
       if (tx >= 0 && ty >= 0 && tx < region.width && ty < region.height) drawAgent(r, tx, ty, r.id === selectedId);
     });
+    if (snap.kind === 'future') {
+      var futureHeat = Math.max(0, Math.min(0.5, (snap.temperatureC - 20) / 180));
+      if (futureHeat > 0) {
+        ctx.fillStyle = 'rgba(180,70,32,' + futureHeat + ')';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      ctx.fillStyle = '#ffd166';
+      ctx.font = '10px "Courier New", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('FUTURE · ' + String(snap.era).toUpperCase(), canvas.width / 2, 18);
+      ctx.fillStyle = '#e8f0f2';
+      ctx.fillText(formatYear(snap.year) + ' · ' + snap.population.toLocaleString() + ' PEOPLE · ' + snap.temperatureC.toFixed(0) + ' °C', canvas.width / 2, 31);
+      ctx.textAlign = 'left';
+    }
   }
   function currentSnap() { return FRAMES[index]; }
   function formatYear(year) {
@@ -487,7 +510,9 @@ export const renderChronicle = (result: RunResult): string => {
     document.getElementById('stat-species').textContent = s.kind === 'deep' ? '—' : String(DATA.species.length);
     document.getElementById('place').textContent = s.kind === 'deep'
       ? '◎ ' + s.epoch + ' · astrophysical projection'
-      : '◎ ' + s.place + ' · the largest settlement in this frame';
+      : s.kind === 'future'
+        ? '◎ ' + s.place + ' · ' + s.era + ' · future projection'
+        : '◎ ' + s.place + ' · the largest settlement in this frame';
     document.getElementById('year-label').textContent = 'year ' + s.year.toLocaleString();
     document.getElementById('time').value = String(index);
   }
@@ -527,8 +552,8 @@ export const renderChronicle = (result: RunResult): string => {
       for (var i = 0; i < s.residents.length; i++) if (s.residents[i].id === selectedId) { r = s.residents[i]; break; }
     }
     if (!r) {
-      holder.innerHTML = '<h3>' + s.place + '</h3><p class="species">' + s.year + ' years · ' + s.population.toLocaleString() + ' people</p>' +
-        '<p>Click a pixel person in the scene or pick a name to see what they are doing. The highlighted tile is the largest settlement in this frame.</p>';
+      holder.innerHTML = '<h3>' + s.place + '</h3><p class="species">' + (s.kind === 'future' ? s.era + ' · ' : '') + s.year + ' years · ' + s.population.toLocaleString() + ' people</p>' +
+        '<p>' + (s.kind === 'future' ? s.description : 'Click a pixel person in the scene or pick a name to see what they are doing. The highlighted tile is the largest settlement in this frame.') + '</p>';
       return;
     }
     var known = r.known.length ? r.known.join(' · ') : 'no formal knowledge';
@@ -547,7 +572,7 @@ export const renderChronicle = (result: RunResult): string => {
       { list: C.theories, color: '#c3a6ff' },
       { list: C.wars, color: '#ff6b6b' },
       { list: C.accidents, color: '#f48fb1' },
-      { list: DEEP.events, color: '#ff9f43' }
+      { list: FUTURE_EVENTS, color: '#ff9f43' }
     ];
     groups.forEach(function (group) {
       group.list.slice(0, 80).forEach(function (e) {
@@ -567,7 +592,7 @@ export const renderChronicle = (result: RunResult): string => {
       ['theories', 'theories'],
       ['wars', 'wars'],
       ['accidents', 'plagues & accidents'],
-      ['epochs', 'deep time']
+      ['epochs', 'future history']
     ];
     var tabHolder = document.getElementById('tabs');
     tabHolder.innerHTML = '';

@@ -45,13 +45,20 @@ not silently change the energy budget, but temporal resolution is genuinely lowe
    The metrics step also samples a chronicle frame (people, settlement region, actions)
    every `ceil(ticks / 50)` ticks.
 
-After the tick loop, `buildDeepTimeProjection` extends the chronicle timeline from the
-last simulated year to 10 Gyr with 36 log-spaced frames. This is an explicit astrophysical
-projection, not another ecology: main-sequence luminosity grows as
+After the tick loop, `buildFutureHistory` extends the chronicle from the last simulated
+year to 10 Gyr. This is a coarse future-history model, not a second individual-level
+ecology: it integrates population, settlements and technology level with a logistic
+carrying capacity, habitat loss and seeded shocks (plague, war, golden age, migration,
+machine disruption, climate). Near-future frames include 2026; later frames are
+log-spaced. The same seed always produces the same future; different seeds and starting
+states produce different histories. Future residents are representatives of that
+frame's population, not surviving individuals from the historical run.
+
+`buildDeepTimeProjection` supplies the physical stage: main-sequence luminosity grows as
 `L0 · (1 + 0.08 · massSolar · Gyr)`, surface temperature follows Stefan-Boltzmann scaling,
 and the star leaves the main sequence at `lifetimeGyr`, becoming a red giant. Thresholds at
-47 °C, 100 °C and 150 °C date the moist greenhouse, ocean loss and biosphere collapse; no
-new individuals are simulated in deep-time frames.
+47 °C, 100 °C and 150 °C date the moist greenhouse, ocean loss and biosphere collapse. The
+future model drives population to zero once the surface can no longer support it.
 
 First collective discoveries are emitted when a species' knowledge union gains a
 technology: `technology` for practical knowledge and `theory` for mathematics, germ

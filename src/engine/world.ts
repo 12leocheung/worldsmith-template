@@ -2,7 +2,8 @@ import { Rng } from '../core/rng.ts';
 import { clamp, mean } from '../core/math.ts';
 import { digest } from '../core/registry.ts';
 import { surfaceTemperatureC } from '../cosmos/planet.ts';
-import { buildDeepTimeProjection } from '../cosmos/deep-time.ts';
+import { buildDeepTimeProjection, type DeepTimeOptions } from '../cosmos/deep-time.ts';
+import { buildFutureHistory } from '../society/future.ts';
 import { stateAt } from '../cosmos/orbit.ts';
 import { findBody, resolveSystem, type StarSystem, type SystemBody } from '../cosmos/system.ts';
 import { generateTerrain, neighbouringCells, type Terrain } from '../geo/terrain.ts';
@@ -1057,7 +1058,7 @@ export class World implements SimulationContext {
 
     const planetDistance = this.focusBody.orbit.semiMajorAxisAu;
     const yearsTotal = this.tick * this.yearsPerTick;
-    const deepTime = buildDeepTimeProjection({
+    const deepTimeOptions: DeepTimeOptions = {
       luminositySolar: this.star.luminositySolar,
       massSolar: this.star.massSolar,
       lifetimeGyr: this.star.lifetimeGyr,
@@ -1065,6 +1066,42 @@ export class World implements SimulationContext {
       orbitAu: planetDistance,
       simulationEndYear: yearsTotal,
       targetYears: 10_000_000_000,
+    };
+    const deepTime = buildDeepTimeProjection(deepTimeOptions);
+    const lastSnapshot = this.chronicleSnapshots[this.chronicleSnapshots.length - 1];
+    const fallbackWidth = Math.min(11, this.terrain.width);
+    const fallbackHeight = Math.min(9, this.terrain.height);
+    const futureCenter = lastSnapshot?.centerCell ?? Math.floor((this.terrain.width * this.terrain.height) / 2);
+    const future = buildFutureHistory({
+      seed: this.seed,
+      startYear: yearsTotal,
+      initialPopulation: living.length,
+      initialSettlements: lastSnapshot?.settlements ?? 0,
+      initialTechnologyCount: summary.technologies.length,
+      species: species
+        .filter((entry) => entry.finalPopulation > 0)
+        .map((entry) => ({
+          id: entry.id,
+          name: entry.name,
+          color: entry.color,
+          population: entry.finalPopulation,
+          sapient: entry.meanGenome.brainMassKg / Math.max(1, entry.meanGenome.bodyMassKg) >= 0.012,
+        })),
+      region: lastSnapshot?.region ?? {
+        width: fallbackWidth,
+        height: fallbackHeight,
+        originX: clamp((futureCenter % this.terrain.width) - Math.floor(fallbackWidth / 2), 0, this.terrain.width - fallbackWidth),
+        originY: clamp(Math.floor(futureCenter / this.terrain.width) - Math.floor(fallbackHeight / 2), 0, this.terrain.height - fallbackHeight),
+        centerX: futureCenter % this.terrain.width,
+        centerY: Math.floor(futureCenter / this.terrain.width),
+        biome: new Array<string>(fallbackWidth * fallbackHeight).fill('grassland') as BiomeId[],
+        population: new Array<number>(fallbackWidth * fallbackHeight).fill(0),
+      },
+      mapWidth: this.terrain.width,
+      centerCell: futureCenter,
+      place: lastSnapshot?.place ?? settlementName(futureCenter, this.seed),
+      deepTime: deepTimeOptions,
+      deepTimeEvents: deepTime.events,
     });
 
     return {
@@ -1118,6 +1155,7 @@ export class World implements SimulationContext {
         wars: this.ledger(['war']),
         accidents: this.ledger(['plague', 'accident']),
         deepTime,
+        future,
       },
       map: {
         width: this.terrain.width,
