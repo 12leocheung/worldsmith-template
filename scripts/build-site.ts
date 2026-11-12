@@ -162,7 +162,7 @@ const build = async (): Promise<void> => {
       <a href="architecture.md">Architecture</a>
       <a href="scenarios.md">Scenario reference</a>
       <a href="extending.md">Extend it</a>
-      <a href="../README.md">README</a>
+      <a href="https://github.com/12leocheung/worldsmith-template#readme">README</a>
     </nav>
   </header>
 

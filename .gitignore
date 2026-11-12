@@ -2,3 +2,8 @@ node_modules/
 runs/
 *.log
 .env
+docs/index.html
+docs/worlds/
+docs/.nojekyll
+bootstrap/
+docs/worldsmith.tar.xz
