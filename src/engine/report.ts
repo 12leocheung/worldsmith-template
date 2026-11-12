@@ -3,6 +3,7 @@ import type { Genome } from '../bio/genome.ts';
 import type { BiomeId } from '../geo/biomes.ts';
 import { BIOMES } from '../geo/biomes.ts';
 import type { WorldEvent } from '../society/context.ts';
+import type { Chronicle } from './chronicle.ts';
 
 export interface Series {
   ticks: number[];
@@ -92,6 +93,8 @@ export interface RunResult {
   series: Series;
   species: SpeciesSummary[];
   events: WorldEvent[];
+  /** Sampled people, settlements and event ledgers for the interactive page. */
+  chronicle: Chronicle;
   map: {
     width: number;
     height: number;
@@ -226,7 +229,9 @@ const escapeHtml = (text: string): string =>
 
 /** Render a single self-contained HTML report with charts and a surface map. */
 export const renderHtmlReport = (result: RunResult): string => {
-  const data = JSON.stringify(result).replace(/</g, '\\u003c');
+  // The chronicle has its own page; keeping it out of this payload preserves the
+  // report's small, chart-focused script tag.
+  const data = JSON.stringify({ ...result, chronicle: undefined }).replace(/</g, '\\u003c');
   const biomeColors = JSON.stringify(
     Object.fromEntries(Object.entries(BIOMES).map(([id, info]) => [id, info.color])),
   );
@@ -286,6 +291,7 @@ export const renderHtmlReport = (result: RunResult): string => {
   .legend { display:flex; flex-wrap:wrap; gap:10px; color:var(--muted); font-size:12px; margin-top:8px; }
   .legend span { display:inline-flex; align-items:center; gap:5px; }
   .swatch { width:11px; height:11px; border-radius:2px; }
+  .chronicle-link { display:inline-block; border:1px solid var(--line); background:var(--accent); color:#06231f; text-decoration:none; font-weight:600; padding:7px 11px; border-radius:7px; font-size:13px; }
 </style>
 </head>
 <body>
@@ -293,6 +299,7 @@ export const renderHtmlReport = (result: RunResult): string => {
   <h1>${title}</h1>
   <p class="sub">${escapeHtml(result.scenario.description)}</p>
   <p class="meta">Seed <code>${result.scenario.seed}</code> · ${result.scenario.ticks} ticks × ${result.scenario.yearsPerTick} y = ${result.scenario.yearsTotal} years · digest <code>${result.digest}</code></p>
+  <p style="margin:12px 0 0"><a class="chronicle-link" href="chronicle.html">Open the interactive chronicle →</a></p>
   <div class="cards">${cards}</div>
 </header>
 <main>

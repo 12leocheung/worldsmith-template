@@ -28,19 +28,20 @@ npm run sim -- list         # list the experiment scenarios
 npm run sim -- inspect scenarios/earthlike.ts
 npm run sim -- run scenarios/earthlike.ts
 npm run sim -- compare scenarios/earthlike.ts scenarios/hypercognitive.ts --ticks 200
-npm test                    # 39 tests
+npm test                    # 41 tests
 npm run typecheck
 ```
 
-A run writes three artefacts to `runs/<scenario>-s<seed>/`:
+A run writes four artefacts to `runs/<scenario>-s<seed>/`:
 
 | File | Contents |
 | --- | --- |
-| `run.json` | Complete result: configuration, planetary setting, time series, species summaries, events, surface map, state digest |
+| `run.json` | Complete result: configuration, planetary setting, time series, species summaries, events, chronicle snapshots, surface map, state digest |
 | `report.md` | Human-readable report with physical setting, outcome, species, time series, death causes, behaviour mix |
 | `report.html` | Self-contained visual report: population chart, culture/cognition chart, biome map with settlements, species table |
+| `chronicle.html` | Pixel-isometric chronicle: scrubbable timeline, clickable residents and their actions, and ledgers of technologies, theories, wars and disease/accident outbreaks |
 
-Reports open directly in a browser; the HTML file has no external dependencies.
+All three HTML/JSON artefacts open directly in a browser; the HTML files have no external dependencies. The chronicle samples up to 51 frames and 36 residents per frame from the underlying individual simulation, so the page stays small while every sprite is a real simulated person or animal.
 
 ## Repository map
 
@@ -52,7 +53,7 @@ src/
   bio/        quantitative genomes, metabolic scaling, species presets
   neuro/      modular brain regions, perception, action utilities, learning
   society/    individuals, actions, technology tree, species runtimes
-  engine/     scenario contract, tick loop, results, Markdown/HTML reports
+  engine/     scenario contract, tick loop, results, Markdown/HTML reports, chronicle
   cli.ts      list / run / compare / inspect / validate
 scenarios/    declarative experiments
 tests/        node:test suites for every layer
@@ -73,6 +74,7 @@ docs/         architecture, scenario reference, extension guide
 | Brains | Six default regions (medulla, hypothalamus, amygdala, hippocampus, cortex, cerebellum) plus optional ganglia/pallium; region activity → action utilities → softmax choice → reward learning | Vital tone, cognition, teaching fidelity |
 | Culture | 20 technologies as a bitmask, prerequisites, species-level union, teaching and diffusion | Knowledge dies with its last holder |
 | Demography | Ageing (Gompertz), starvation, disease density, thermal exposure, predation, reproduction with birth spacing and clutch scaling | Per-species population ceiling |
+| Conflict | Dense neighbouring settlements of an encephalised, aggressive lineage may raid each other; deaths are recorded as `war` | Bounded territorial raids, not a strategic war model |
 
 Everything is in physical units so parameters can be checked against the real world
 rather than tuned into a corner.
@@ -173,5 +175,5 @@ matters for your question.
 `npm test` covers RNG stream independence, Kepler solutions, planetary temperatures and
 gravity, terrain determinism and area accounting, biome classification, genetic bounds,
 metabolic scaling, brain ablation, technology prerequisites, scenario validation, run
-determinism and report rendering. `npm run typecheck` type-checks source, scenarios and
-tests.
+determinism, chronicle sampling and report rendering. `npm run typecheck` type-checks
+source, scenarios and tests.

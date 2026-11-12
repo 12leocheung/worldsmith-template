@@ -5,6 +5,7 @@ import { parseArgs } from 'node:util';
 import { World } from './engine/world.ts';
 import { validateScenario, type Scenario } from './engine/scenario.ts';
 import { comparisonMetrics, renderHtmlReport, renderMarkdown, type RunResult } from './engine/report.ts';
+import { renderChronicle } from './engine/chronicle.ts';
 import { describeBody } from './cosmos/system.ts';
 import { BIOMES } from './geo/biomes.ts';
 
@@ -99,7 +100,8 @@ const runOne = async (
   await writeFile(path.join(dir, 'report.md'), renderMarkdown(result));
   if (options.html) {
     await writeFile(path.join(dir, 'report.html'), renderHtmlReport(result));
-    outputs.push(path.join(dir, 'report.html'));
+    await writeFile(path.join(dir, 'chronicle.html'), renderChronicle(result));
+    outputs.push(path.join(dir, 'report.html'), path.join(dir, 'chronicle.html'));
   }
   if (options.quiet) {
     console.log(outputs.join('\n'));

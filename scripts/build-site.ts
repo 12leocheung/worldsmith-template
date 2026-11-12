@@ -27,6 +27,8 @@ interface WorldEntry {
   slug: string;
   result: RunResult;
   reportFile: string;
+  chronicleFile: string;
+  hasChronicle: boolean;
 }
 
 const loadWorlds = async (): Promise<WorldEntry[]> => {
@@ -51,7 +53,14 @@ const loadWorlds = async (): Promise<WorldEntry[]> => {
     } catch {
       continue;
     }
-    worlds.push({ slug, result: JSON.parse(raw) as RunResult, reportFile: reportPath });
+    const chroniclePath = path.join(RUNS_DIR, slug, 'chronicle.html');
+    let hasChronicle = true;
+    try {
+      await readFile(chroniclePath, 'utf8');
+    } catch {
+      hasChronicle = false;
+    }
+    worlds.push({ slug, result: JSON.parse(raw) as RunResult, reportFile: reportPath, chronicleFile: chroniclePath, hasChronicle });
   }
   return worlds;
 };
@@ -76,7 +85,10 @@ const card = (world: WorldEntry, highlight: boolean): string => {
       </dl>
       <p class="species">${species}</p>
       <p class="meta">${escapeHtml(result.star.name)} (${escapeHtml(result.star.spectralClass)}) · ${escapeHtml(result.focusPlanet.name)} at ${result.focusPlanet.distanceAu.toFixed(2)} AU · seed <code>${result.scenario.seed}</code></p>
-      <a class="button${highlight ? ' primary' : ''}" href="worlds/${encodeURIComponent(world.slug)}.html">Open report →</a>
+      <div class="actions">
+        ${world.hasChronicle ? `<a class="button${highlight ? ' primary' : ''}" href="worlds/${encodeURIComponent(world.slug)}-chronicle.html">Watch chronicle →</a>` : ''}
+        <a class="button" href="worlds/${encodeURIComponent(world.slug)}.html">Open report →</a>
+      </div>
     </article>`;
 };
 
@@ -91,7 +103,16 @@ const build = async (): Promise<void> => {
 
   await mkdir(WORLDS_DIR, { recursive: true });
   for (const world of worlds) {
-    await copyFile(world.reportFile, path.join(WORLDS_DIR, `${world.slug}.html`));
+    // Reports are written next to chronicle.html in the run directory, but the
+    // gallery flattens worlds into one folder with a slug-prefixed chronicle name.
+    const reportHtml = await readFile(world.reportFile, 'utf8');
+    const linkedReport = world.hasChronicle
+      ? reportHtml.replaceAll('href="chronicle.html"', `href="${world.slug}-chronicle.html"`)
+      : reportHtml;
+    await writeFile(path.join(WORLDS_DIR, `${world.slug}.html`), linkedReport);
+    if (world.hasChronicle) {
+      await copyFile(world.chronicleFile, path.join(WORLDS_DIR, `${world.slug}-chronicle.html`));
+    }
   }
   await writeFile(path.join(OUT_DIR, '.nojekyll'), '');
 
@@ -132,7 +153,8 @@ const build = async (): Promise<void> => {
   .species { margin:0; font-size:13px; color:#c8d3dd; }
   .meta { margin:0; color:var(--muted); font-size:12px; }
   code { background:#1b2632; padding:1px 5px; border-radius:4px; }
-  .card .button { margin-top:auto; text-align:center; }
+  .card .actions { margin-top:auto; display:flex; gap:8px; flex-wrap:wrap; }
+  .card .button { text-align:center; flex:1 1 auto; }
   section.about { margin-top:48px; display:grid; grid-template-columns:1.3fr 1fr; gap:24px; }
   @media (max-width:800px) { section.about { grid-template-columns:1fr; } }
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:22px; }
@@ -157,7 +179,7 @@ const build = async (): Promise<void> => {
       <div><strong>${formatNumber(totalPopulation)}</strong><span>peak population</span></div>
       <div><strong>20</strong><span>technologies</span></div>
     </div>
-    <a class="button primary" href="worlds/${encodeURIComponent(defaultWorld.slug)}.html">Watch the default world →</a>
+    <a class="button primary" href="worlds/${encodeURIComponent(defaultWorld.slug)}${defaultWorld.hasChronicle ? '-chronicle' : ''}.html">Watch the default world →</a>
     <nav class="docs">
       <a href="architecture.md">Architecture</a>
       <a href="scenarios.md">Scenario reference</a>

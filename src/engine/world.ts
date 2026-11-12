@@ -4,7 +4,7 @@ import { digest } from '../core/registry.ts';
 import { surfaceTemperatureC } from '../cosmos/planet.ts';
 import { stateAt } from '../cosmos/orbit.ts';
 import { findBody, resolveSystem, type StarSystem, type SystemBody } from '../cosmos/system.ts';
-import { generateTerrain, type Terrain } from '../geo/terrain.ts';
+import { generateTerrain, neighbouringCells, type Terrain } from '../geo/terrain.ts';
 import { computeClimate, seasonPhaseFor, type Climate } from '../geo/climate.ts';
 import { BIOMES, plantEdibleFraction, type BiomeId } from '../geo/biomes.ts';
 import { resolveSpecies, type ResolvedSpecies } from '../bio/species.ts';
@@ -17,7 +17,9 @@ import {
 } from '../bio/metabolism.ts';
 import { meanGenome, type Genome } from '../bio/genome.ts';
 import { cognitionScore, configureRegion, vitalTone } from '../neuro/brain.ts';
+import { ACTIONS } from '../neuro/actions.ts';
 import { createIndividual, type Individual } from '../society/individual.ts';
+import { personName, settlementName } from '../society/names.ts';
 import { act } from '../society/actions.ts';
 import {
   addTech,
@@ -31,6 +33,7 @@ import {
 import type { SimulationContext, SpeciesRuntime, WorldEvent } from '../society/context.ts';
 import { resolveFounders, validateScenario, type FoundingSpec, type Intervention, type Scenario } from './scenario.ts';
 import type { RunResult, Series, SpeciesSummary } from './report.ts';
+import type { ChronicleEvent, ChronicleSnapshot, ResidentView } from './chronicle.ts';
 import { surfaceGravity } from '../cosmos/planet.ts';
 import type { Planet } from '../cosmos/planet.ts';
 import type { Star } from '../cosmos/star.ts';
@@ -74,6 +77,11 @@ export class World implements SimulationContext {
   readonly actionCounts = new Map<string, number>();
   readonly actionCountsBySpecies = new Map<string, Map<string, number>>();
   readonly deathCausesBySpecies = new Map<string, Map<string, number>>();
+  private readonly chronicleSnapshots: ChronicleSnapshot[] = [];
+  private readonly chronicleInterval: number;
+  private readonly causeCountsThisTick = new Map<string, number>();
+  private readonly lastHazardEventTick = new Map<string, number>();
+  private readonly lastWarTick = new Map<string, number>();
 
   birthsThisTick = 0;
   deathsThisTick = 0;
@@ -98,6 +106,7 @@ export class World implements SimulationContext {
     this.yearsPerTick = scenario.run.yearsPerTick;
     this.maxPopulation = scenario.run.maxPopulation ?? 4000;
     this.harvestedAreaFraction = scenario.world.harvestedAreaFraction ?? 0.001;
+    this.chronicleInterval = Math.max(1, Math.ceil(this.ticks / 50));
     this.rootRng = new Rng(this.seed, 'world');
     this.tickRng = this.rootRng.fork('tick:0');
 
@@ -228,6 +237,7 @@ export class World implements SimulationContext {
     const runtime = this.speciesById.get(speciesId);
     if (runtime) runtime.deaths += 1;
     this.deathsThisTick += 1;
+    this.causeCountsThisTick.set(cause, (this.causeCountsThisTick.get(cause) ?? 0) + 1);
     this.deathCauses.set(cause, (this.deathCauses.get(cause) ?? 0) + 1);
     let speciesCauses = this.deathCausesBySpecies.get(speciesId);
     if (!speciesCauses) {
@@ -271,12 +281,15 @@ export class World implements SimulationContext {
     this.currentYear = this.tick * this.yearsPerTick;
     this.birthsThisTick = 0;
     this.deathsThisTick = 0;
+    this.causeCountsThisTick.clear();
     this.tickRng = this.rootRng.fork(`tick:${this.tick}`);
 
     this.applyInterventions();
     this.updateEnvironment();
     this.actionPhase();
+    this.conflictPhase();
     this.metabolismPhase();
+    this.recordHazards();
     this.diffusionPhase();
     this.compactDead();
     this.rebuildIndex();
@@ -502,9 +515,221 @@ export class World implements SimulationContext {
       masks.set(individual.speciesId, (masks.get(individual.speciesId) ?? 0) | individual.knowledge);
     }
     for (const [id, runtime] of this.speciesById) {
-      runtime.knowledgeMask = masks.get(id) ?? 0;
-      runtime.effects = techEffects(runtime.knowledgeMask);
+      const next = masks.get(id) ?? 0;
+      const gained = next & ~runtime.knowledgeMask;
+      if (gained !== 0) {
+        for (const tech of knownTechnologies(gained)) {
+          const theory = tech.category === 'theory';
+          this.event(
+            theory ? 'theory' : 'technology',
+            `${runtime.resolved.name} ${theory ? 'formulated' : 'mastered'} ${tech.name}`,
+            { speciesId: id, technology: tech.id, description: tech.description },
+          );
+        }
+      }
+      runtime.knowledgeMask = next;
+      runtime.effects = techEffects(next);
     }
+  }
+
+  /**
+   * Territorial conflict between neighbouring settlements of the same lineage.
+   *
+   * A raid needs a dense settlement, a neighbouring group, an encephalised species
+   * and some aggression. It is intentionally bounded: a few deaths and a chronicle
+   * entry, not a separate war simulation.
+   */
+  private conflictPhase(): void {
+    for (const [id, runtime] of this.speciesById) {
+      const species = runtime.resolved;
+      const encephalisation = species.genome.brainMassKg / Math.max(1, species.genome.bodyMassKg);
+      if (species.role === 'carnivore' || encephalisation < 0.012 || species.genome.aggression < 0.3) continue;
+      if (this.tick - (this.lastWarTick.get(id) ?? -999) < 8) continue;
+
+      const pairs: [number, number][] = [];
+      for (const [cell, counts] of this.speciesCellCounts) {
+        if ((counts.get(id) ?? 0) < 8) continue;
+        for (const neighbour of neighbouringCells(cell, this.terrain.width, this.terrain.height)) {
+          if (this.terrain.isOcean[neighbour] === 1) continue;
+          if ((this.speciesCellCounts.get(neighbour)?.get(id) ?? 0) >= 4) pairs.push([cell, neighbour]);
+        }
+      }
+      if (pairs.length === 0) continue;
+      const chance = Math.min(0.12, 0.004 * (1 + species.genome.aggression) * this.yearsPerTick);
+      if (!this.tickRng.chance(chance)) continue;
+
+      const [attackerCell, defenderCell] = pairs[this.tickRng.int(0, pairs.length)] as [number, number];
+      const attacker = settlementName(attackerCell, this.seed);
+      const defender = settlementName(defenderCell, this.seed);
+      const attackerDeaths = this.killFromCell(attackerCell, id, 1 + this.tickRng.int(0, 2));
+      const defenderDeaths = this.killFromCell(defenderCell, id, 1 + this.tickRng.int(0, 2));
+      if (attackerDeaths + defenderDeaths === 0) continue;
+      this.lastWarTick.set(id, this.tick);
+      this.event('war', `${attacker} raided ${defender}`, {
+        speciesId: id,
+        attacker,
+        defender,
+        deaths: attackerDeaths + defenderDeaths,
+        attackerCell,
+        defenderCell,
+      });
+    }
+  }
+
+  private killFromCell(cell: number, speciesId: string, count: number): number {
+    const victims = this.occupantsIn(cell).filter(
+      (individual) => individual.alive && individual.speciesId === speciesId,
+    );
+    let killed = 0;
+    while (killed < count && victims.length > 0) {
+      const index = this.tickRng.int(0, victims.length);
+      const victim = victims.splice(index, 1)[0] as Individual;
+      this.kill(victim, 'war');
+      killed += 1;
+    }
+    return killed;
+  }
+
+  /** Emit outbreaks rather than one event per death. */
+  private recordHazards(): void {
+    let population = 0;
+    for (const count of this.populationCounts.values()) population += count;
+    const disease = this.causeCountsThisTick.get('disease') ?? 0;
+    const accidents = (this.causeCountsThisTick.get('injury') ?? 0) + (this.causeCountsThisTick.get('exposure') ?? 0);
+    if (disease >= Math.max(8, Math.round(population * 0.015)) && this.canEmitHazard('plague', 25)) {
+      this.event('plague', `Disease outbreak: ${disease} dead`, { deaths: disease });
+    }
+    if (accidents >= 3 && this.canEmitHazard('accident', 15)) {
+      this.event('accident', `Accidents and exposure killed ${accidents}`, { deaths: accidents });
+    }
+  }
+
+  private canEmitHazard(kind: string, gap: number): boolean {
+    const last = this.lastHazardEventTick.get(kind) ?? -999;
+    if (this.tick - last < gap) return false;
+    this.lastHazardEventTick.set(kind, this.tick);
+    return true;
+  }
+
+  /** Capture a bounded, stable sample of the living world for the chronicle page. */
+  private recordChronicle(): void {
+    const living = this.individuals.filter((individual) => individual.alive);
+    const counts = new Map<number, number>();
+    const sapientCounts = new Map<number, number>();
+    for (const individual of living) {
+      counts.set(individual.cell, (counts.get(individual.cell) ?? 0) + 1);
+      if (individual.genome.brainMassKg / Math.max(1, individual.genome.bodyMassKg) >= 0.012) {
+        sapientCounts.set(individual.cell, (sapientCounts.get(individual.cell) ?? 0) + 1);
+      }
+    }
+    let centerCell = -1;
+    let best = -1;
+    for (const [cell, count] of sapientCounts.size > 0 ? sapientCounts : counts) {
+      if (count > best || (count === best && (centerCell < 0 || cell < centerCell))) {
+        best = count;
+        centerCell = cell;
+      }
+    }
+    if (centerCell < 0) centerCell = Math.floor((this.terrain.width * this.terrain.height) / 2);
+
+    const regionWidth = Math.min(11, this.terrain.width);
+    const regionHeight = Math.min(9, this.terrain.height);
+    const centerX = centerCell % this.terrain.width;
+    const centerY = Math.floor(centerCell / this.terrain.width);
+    const originX = clamp(centerX - Math.floor(regionWidth / 2), 0, this.terrain.width - regionWidth);
+    const originY = clamp(centerY - Math.floor(regionHeight / 2), 0, this.terrain.height - regionHeight);
+
+    const biome: ChronicleSnapshot['region']['biome'] = [];
+    const population: number[] = [];
+    for (let y = 0; y < regionHeight; y++) {
+      for (let x = 0; x < regionWidth; x++) {
+        const cell = (originY + y) * this.terrain.width + (originX + x);
+        biome.push(this.climate.biome[cell] as ChronicleSnapshot['region']['biome'][number]);
+        population.push(counts.get(cell) ?? 0);
+      }
+    }
+
+    const inRegion = living
+      .filter((individual) => {
+        const x = individual.cell % this.terrain.width;
+        const y = Math.floor(individual.cell / this.terrain.width);
+        return x >= originX && x < originX + regionWidth && y >= originY && y < originY + regionHeight;
+      })
+      .sort((a, b) => a.id - b.id);
+    const stride = Math.max(1, Math.ceil(inRegion.length / 36));
+    const picked = inRegion.filter((_, index) => index % stride === 0).slice(0, 36);
+    for (const speciesId of this.speciesById.keys()) {
+      if (picked.some((individual) => individual.speciesId === speciesId)) continue;
+      const candidate = inRegion.find((individual) => individual.speciesId === speciesId);
+      if (candidate) picked.push(candidate);
+    }
+
+    const residents: ResidentView[] = picked.map((individual) => {
+      const species = this.speciesById.get(individual.speciesId)?.resolved;
+      const sapient = individual.genome.brainMassKg / Math.max(1, individual.genome.bodyMassKg) >= 0.012;
+      const jitterX = ((Math.imul(individual.id, 2654435761) >>> 0) % 1000) / 1000;
+      const jitterY = ((Math.imul(individual.id, 40503) >>> 0) % 1000) / 1000;
+      const action = individual.lastAction;
+      return {
+        id: individual.id,
+        name: personName(individual.id, species?.name ?? individual.speciesId, sapient),
+        speciesId: individual.speciesId,
+        speciesName: species?.name ?? individual.speciesId,
+        color: species?.color ?? '#f2c14e',
+        cell: individual.cell,
+        action: action ?? 'idle',
+        actionLabel: action ? ACTIONS[action].label : 'Idle',
+        ageYears: individual.ageYears,
+        energy:
+          (individual.energyKcal / Math.max(1, energyCapacityKcal(individual.genome, this.yearsPerTick))) * 100,
+        health: individual.health * 100,
+        techs: knownTechnologies(individual.knowledge).length,
+        known: knownTechnologies(individual.knowledge).slice(0, 3).map((tech) => tech.name),
+        offspring: individual.offspringCount,
+        sapient,
+        x: jitterX,
+        y: jitterY,
+      };
+    });
+
+    this.chronicleSnapshots.push({
+      tick: this.tick,
+      year: this.currentYear,
+      population: living.length,
+      settlements: [...counts.values()].filter((count) => count >= 4).length,
+      centerCell,
+      place: settlementName(centerCell, this.seed),
+      region: { width: regionWidth, height: regionHeight, originX, originY, centerX, centerY, biome, population },
+      residents,
+    });
+  }
+
+  private ledger(kinds: readonly string[], firstPerTechnology = false): ChronicleEvent[] {
+    const seen = new Set<string>();
+    const entries: ChronicleEvent[] = [];
+    for (const event of this.events) {
+      if (!kinds.includes(event.kind)) continue;
+      const data = event.data ?? {};
+      const speciesId = typeof data.speciesId === 'string' ? data.speciesId : undefined;
+      const techId = typeof data.technology === 'string' ? data.technology : undefined;
+      if (firstPerTechnology && techId) {
+        const key = `${speciesId ?? 'any'}:${techId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+      }
+      let detail = typeof data.description === 'string' ? data.description : '';
+      if (typeof data.deaths === 'number') detail = `${data.deaths} dead`;
+      if (typeof data.killed === 'number') detail = `${data.killed} dead`;
+      entries.push({
+        tick: event.tick,
+        year: event.tick * this.yearsPerTick,
+        title: event.message,
+        detail,
+        speciesId,
+        techId,
+      });
+    }
+    return entries;
   }
 
   private kill(individual: Individual, cause: string): void {
@@ -689,7 +914,7 @@ export class World implements SimulationContext {
             killed += 1;
           }
         }
-        this.event('intervention', `Plague killed ${killed} individuals`, { killed });
+        this.event('plague', `Plague killed ${killed} individuals`, { killed });
         break;
       }
       case 'teach': {
@@ -773,6 +998,7 @@ export class World implements SimulationContext {
       this.series.speciesPopulation[id]?.push(this.countSpecies(id));
       void runtime;
     }
+    if (this.tick % this.chronicleInterval === 0 || this.tick === this.ticks) this.recordChronicle();
   }
 
   /** Serialise the current state into a reporter-friendly result. */
@@ -874,6 +1100,14 @@ export class World implements SimulationContext {
       series: this.series,
       species,
       events: this.events,
+      chronicle: {
+        intervalTicks: this.chronicleInterval,
+        snapshots: this.chronicleSnapshots,
+        technologies: this.ledger(['technology'], true),
+        theories: this.ledger(['theory'], true),
+        wars: this.ledger(['war']),
+        accidents: this.ledger(['plague', 'accident']),
+      },
       map: {
         width: this.terrain.width,
         height: this.terrain.height,

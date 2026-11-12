@@ -34,10 +34,21 @@ not silently change the energy budget, but temporal resolution is genuinely lowe
    → regenerate food stocks → rebuild spatial indexes and per-species technology.
 4. Behaviour: every living individual, in a deterministically shuffled order, perceives,
    evaluates action utilities, chooses via softmax, acts, and learns from the reward.
-5. Metabolism and mortality: pay the tick's energy demand, age, accumulate hazards
+5. Conflict: a dense settlement of an encephalised, aggressive lineage may raid a
+   neighbouring group of the same species. This is bounded territorial violence, not a
+   strategic war model; deaths are recorded with cause `war`.
+6. Metabolism and mortality: pay the tick's energy demand, age, accumulate hazards
    (old age, autonomic failure, disease, exposure, starvation, injury), resolve them.
-6. Cultural diffusion: co-located conspecifics exchange knowledge.
-7. Compact the dead, rebuild indexes, update species knowledge unions, record metrics.
+   Disease spikes and accident clusters are emitted as `plague` / `accident` events.
+7. Cultural diffusion: co-located conspecifics exchange knowledge.
+8. Compact the dead, rebuild indexes, update species knowledge unions, record metrics.
+   The metrics step also samples a chronicle frame (people, settlement region, actions)
+   every `ceil(ticks / 50)` ticks.
+
+First collective discoveries are emitted when a species' knowledge union gains a
+technology: `technology` for practical knowledge and `theory` for mathematics, germ
+theory, the scientific method and genetics. Per-individual attempts are deliberately
+not logged, so event ledgers stay readable.
 
 The order is fixed; no system runs "whenever". This is what makes runs reproducible and
 what makes `compare` meaningful.

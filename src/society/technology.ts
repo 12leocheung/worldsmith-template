@@ -39,6 +39,8 @@ export interface Technology {
   requires: string[];
   description: string;
   effects: Partial<TechEffects>;
+  /** Ledger category: practical technology or abstract theory. */
+  category?: 'technology' | 'theory';
 }
 
 const TECH_SEQUENCE: Omit<Technology, 'bit'>[] = [
@@ -118,6 +120,7 @@ const TECH_SEQUENCE: Omit<Technology, 'bit'>[] = [
     requires: ['writing'],
     description: 'Abstract reasoning formalises technical knowledge.',
     effects: { innovation: 0.3 },
+    category: 'theory',
   },
   {
     id: 'sanitation',
@@ -153,6 +156,7 @@ const TECH_SEQUENCE: Omit<Technology, 'bit'>[] = [
     requires: ['medicine', 'mathematics'],
     description: 'Understanding pathogens transforms survival.',
     effects: { survival: 0.35 },
+    category: 'theory',
   },
   {
     id: 'electricity',
@@ -167,6 +171,7 @@ const TECH_SEQUENCE: Omit<Technology, 'bit'>[] = [
     requires: ['mathematics', 'printing'],
     description: 'Institutionalised hypothesis testing accelerates discovery.',
     effects: { innovation: 0.6 },
+    category: 'theory',
   },
   {
     id: 'computing',
@@ -181,6 +186,7 @@ const TECH_SEQUENCE: Omit<Technology, 'bit'>[] = [
     requires: ['germTheory', 'scientificMethod'],
     description: 'Understanding heredity, with consequences for medicine and agriculture.',
     effects: { survival: 0.2, foodYield: 0.2 },
+    category: 'theory',
   },
 ];
 

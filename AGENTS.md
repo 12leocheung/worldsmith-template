@@ -9,7 +9,7 @@ experiments, not for a single impressive output. Read `README.md` and
 ```bash
 npm install
 npm run typecheck                 # tsc --noEmit over src, scenarios, tests
-npm test                          # node:test, 39 tests
+npm test                          # node:test, 41 tests
 npm run sim -- run scenarios/earthlike.ts
 npm run sim -- compare scenarios/earthlike.ts scenarios/hypercognitive.ts --ticks 200
 npm run sim -- validate

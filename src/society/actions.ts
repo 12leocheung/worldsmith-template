@@ -12,7 +12,6 @@ import { ACTIONS, type ActionId } from '../neuro/actions.ts';
 import {
   actionUtilities,
   chooseAction,
-  cognitionScore,
   innovationChancePerYear,
   learnFromAction,
   teachingFidelity,
@@ -362,11 +361,9 @@ const doInnovate = (world: SimulationContext, individual: Individual): ActionRes
   }
   const tech = available[Math.floor(world.rng.next() * available.length)] as (typeof available)[number];
   individual.knowledge |= tech.bit;
-  world.event('discovery', `${individual.speciesId} discovered ${tech.name}`, {
-    speciesId: individual.speciesId,
-    technology: tech.id,
-    cognition: cognitionScore(individual.brain),
-  });
+  // Species-level first discoveries are emitted by `updateTech` when the cultural
+  // union gains a technology. Per-individual attempts would flood the event log and
+  // crowd out wars, outbreaks and theories.
   return { reward: 0.4, note: tech.name };
 };
 
