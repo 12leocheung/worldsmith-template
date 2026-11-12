@@ -160,6 +160,11 @@ export const renderChronicle = (result: RunResult): string => {
   .stat b { display:block; font-size:17px; font-variant-numeric:tabular-nums; color:var(--accent); }
   .stat span { font-size:10px; color:var(--muted); letter-spacing:.1em; text-transform:uppercase; }
   .place { color:var(--gold); font-size:13px; margin-top:8px; }
+  .techline {
+    margin:8px 0 0; padding:7px 9px; background:var(--panel2); border-left:3px solid var(--gold);
+    color:var(--text); font-size:11px; line-height:1.5;
+  }
+  .techline b { color:var(--gold); text-transform:uppercase; letter-spacing:.08em; }
   .people { display:flex; flex-direction:column; gap:5px; max-height:330px; overflow:auto; padding-right:4px; }
   .person {
     display:flex; align-items:center; gap:8px; width:100%; text-align:left; cursor:pointer;
@@ -243,6 +248,7 @@ export const renderChronicle = (result: RunResult): string => {
         <div class="stat"><b id="stat-species">0</b><span>lineages</span></div>
       </div>
       <p class="place" id="place">—</p>
+      <p class="techline" id="techline" hidden></p>
       <div class="timeline">
         <div class="time-head">
           <button class="pixel" id="play">▶ play</button>
@@ -513,6 +519,14 @@ export const renderChronicle = (result: RunResult): string => {
       : s.kind === 'future'
         ? '◎ ' + s.place + ' · ' + s.era + ' · future projection'
         : '◎ ' + s.place + ' · the largest settlement in this frame';
+    var techline = document.getElementById('techline');
+    if (s.kind === 'future' && s.technologies && s.technologies.length) {
+      techline.hidden = false;
+      techline.innerHTML = '<b>' + (s.year === 2026 ? '2026 technologies' : s.era + ' technologies') + ':</b> ' + s.technologies.join(' · ');
+    } else {
+      techline.hidden = true;
+      techline.textContent = '';
+    }
     document.getElementById('year-label').textContent = 'year ' + s.year.toLocaleString();
     document.getElementById('time').value = String(index);
   }
