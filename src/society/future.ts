@@ -5,13 +5,15 @@
  * module integrates a small state machine from the final simulated year to the stellar
  * horizon:
  *
- *   population, settlements, known technologies, research, and stochastic shocks
+ *   population, settlements, known technologies, research, institutions, resources
+ *   and ecological pressure
  *
  * Technology is discovered, not assigned by date. Each frame contributes research
- * proportional to the living population and the current era. When a technology's
- * research threshold is crossed it is added to the known set and gets a discovery
- * event at the estimated year. Different worlds therefore reach cars, computers, AI
- * or orbital habitats at different dates — or never.
+ * from the living working-age population, scaled by literacy, institutions, technology
+ * adoption and whether the world chose an open or centralised information order. When a
+ * technology's research threshold is crossed it is added to the known set and gets a
+ * discovery event at the estimated year. Different worlds therefore reach cars,
+ * computers, AI or orbital habitats at different dates — or never.
  *
  * The same seed always produces the same future. Residents shown in a future frame
  * are representatives of that frame's population, not surviving individuals from the
@@ -52,8 +54,19 @@ export interface FutureResident {
   known: string[];
   offspring: number;
   sapient: boolean;
+  /** True for a resident of an orbital habitat rather than the surface. */
+  offWorld: boolean;
   x: number;
   y: number;
+}
+
+export interface AgeStructure {
+  /** Fraction of the population aged 0–14. */
+  children: number;
+  /** Fraction aged 15–64. */
+  working: number;
+  /** Fraction aged 65 and over. */
+  elders: number;
 }
 
 export interface FutureFrame {
@@ -70,7 +83,33 @@ export interface FutureFrame {
   /** Every technology this world has actually learned, in discovery order. */
   technologies: string[];
   population: number;
+  surfacePopulation: number;
+  orbitalPopulation: number;
+  urbanPopulation: number;
+  ruralPopulation: number;
   settlements: number;
+  orbitalSettlements: number;
+  /** Share of adults who can read and use written knowledge. */
+  literacy: number;
+  /** State capacity: taxation, law, public health and education. */
+  institutions: number;
+  /** Share of settlements using the latest known technology. */
+  technologyAccess: number;
+  urbanization: number;
+  tradeConnectivity: number;
+  /** Commercial energy use, MWh per person per year. */
+  energyPerCapita: number;
+  /** Remaining accessible material and fuel stocks, 0–1. */
+  resourceStock: number;
+  pollution: number;
+  biosphereHealth: number;
+  /** Food available relative to demand, 1 = adequate. */
+  foodPerCapita: number;
+  fertility: number;
+  lifeExpectancy: number;
+  ageStructure: AgeStructure;
+  /** Mutually exclusive path choices already made. */
+  branches: string[];
   centerCell: number;
   place: string;
   region: FutureRegion;
@@ -132,6 +171,29 @@ interface TechnologyStep {
   cost: number;
   requires: string[];
   detail: string;
+  /** Mutually exclusive technologies in the same group. */
+  group?: string;
+}
+
+/** Coarse society state carried between future frames. */
+interface FutureState {
+  population: number;
+  surfacePopulation: number;
+  orbitalPopulation: number;
+  fertility: number;
+  lifeExpectancy: number;
+  literacy: number;
+  institutions: number;
+  urbanization: number;
+  technologyAccess: number;
+  energyPerCapita: number;
+  resources: number;
+  pollution: number;
+  biosphere: number;
+  trade: number;
+  inequality: number;
+  /** Cultural/political bias toward openness or central control, 0–1. */
+  pathBias: number;
 }
 
 /** Era reached by each technology in the original tree. */
@@ -238,6 +300,38 @@ const FUTURE_TECHNOLOGIES: TechnologyStep[] = [
     detail: 'Controlled fusion supplies dense, low-carbon energy.',
   },
   {
+    name: 'Renewable energy',
+    era: 4,
+    cost: 2_100,
+    requires: ['Electricity', 'Scientific method'],
+    group: 'energy',
+    detail: 'Wind, solar and storage replace combustion as the backbone of the grid.',
+  },
+  {
+    name: 'Fossil fuel renaissance',
+    era: 4,
+    cost: 2_100,
+    requires: ['Steam power', 'Cars'],
+    group: 'energy',
+    detail: 'Cheap coal, oil and gas are burned faster, buying growth at an ecological price.',
+  },
+  {
+    name: 'Open information order',
+    era: 4,
+    cost: 2_300,
+    requires: ['Internet', 'Scientific method'],
+    group: 'governance',
+    detail: 'Open archives, a free press and public education widen who can produce knowledge.',
+  },
+  {
+    name: 'Centralized automation',
+    era: 4,
+    cost: 2_300,
+    requires: ['Internet', 'Artificial intelligence'],
+    group: 'governance',
+    detail: 'Networked agencies coordinate production and surveillance from the centre.',
+  },
+  {
     name: 'Gene editing',
     era: 5,
     cost: 2_200,
@@ -271,6 +365,13 @@ const FUTURE_TECHNOLOGIES: TechnologyStep[] = [
     cost: 3_200,
     requires: ['Orbital habitats'],
     detail: 'Artificial ecosystems recycle air, water and nutrients indefinitely.',
+  },
+  {
+    name: 'Biosphere restoration',
+    era: 6,
+    cost: 2_600,
+    requires: ['Closed-loop ecology', 'Gene editing'],
+    detail: 'Ecological engineering repairs soil, water and biodiversity at scale.',
   },
   {
     name: 'Stellar engineering',
@@ -318,10 +419,57 @@ const FUTURE_TECHNOLOGIES: TechnologyStep[] = [
 
 const ALL_TECHNOLOGIES: TechnologyStep[] = [...HISTORICAL_TECHNOLOGIES, ...FUTURE_TECHNOLOGIES];
 
-const nextTechnology = (known: ReadonlySet<string>): TechnologyStep | undefined =>
-  ALL_TECHNOLOGIES.find(
-    (tech) => !known.has(tech.name) && tech.requires.every((requirement) => known.has(requirement)),
+const nextTechnology = (known: ReadonlySet<string>, state: FutureState): TechnologyStep | undefined => {
+  const usedGroups = new Set(
+    ALL_TECHNOLOGIES.filter((tech) => tech.group && known.has(tech.name)).map((tech) => tech.group as string),
   );
+  const availableGroups = new Set<string>();
+  const groupIds = [...new Set(ALL_TECHNOLOGIES.map((tech) => tech.group).filter((group): group is string => Boolean(group)))];
+  for (const group of groupIds) {
+    const groupTechs = ALL_TECHNOLOGIES.filter((tech) => tech.group === group);
+    if (usedGroups.has(group)) continue;
+    if (groupTechs.every((tech) => tech.requires.every((requirement) => known.has(requirement)))) {
+      availableGroups.add(group);
+    }
+  }
+  const candidates = ALL_TECHNOLOGIES.filter(
+    (tech) =>
+      !known.has(tech.name) &&
+      (!tech.group || (!usedGroups.has(tech.group) && availableGroups.has(tech.group))) &&
+      tech.requires.every((requirement) => known.has(requirement)),
+  );
+  if (candidates.length === 0) return undefined;
+
+  const firstGrouped = candidates.find((tech) => tech.group);
+  if (firstGrouped?.group) {
+    const options = candidates.filter((tech) => tech.group === firstGrouped.group);
+    if (options.length > 1) {
+      if (firstGrouped.group === 'energy') {
+        const renewable = options.find((tech) => tech.name === 'Renewable energy');
+        const fossil = options.find((tech) => tech.name === 'Fossil fuel renaissance');
+        if (renewable && fossil) {
+          const score = state.pathBias * 0.7 + state.institutions * 0.2 + state.pollution * 0.3;
+          return score >= 0.6 ? renewable : fossil;
+        }
+      }
+      if (firstGrouped.group === 'governance') {
+        const open = options.find((tech) => tech.name === 'Open information order');
+        const centralized = options.find((tech) => tech.name === 'Centralized automation');
+        if (open && centralized) {
+          const score = state.pathBias * 0.7 + state.literacy * 0.2 + state.institutions * 0.1;
+          return score >= 0.6 ? open : centralized;
+        }
+      }
+      return options[0];
+    }
+    return options[0];
+  }
+
+  return candidates[0];
+};
+
+const branchNames = (known: ReadonlySet<string>): string[] =>
+  ALL_TECHNOLOGIES.filter((tech) => tech.group && known.has(tech.name)).map((tech) => tech.name);
 
 const knownTechnologyNames = (known: ReadonlySet<string>): string[] =>
   ALL_TECHNOLOGIES.filter((tech) => known.has(tech.name)).map((tech) => tech.name);
@@ -339,31 +487,200 @@ const eraForKnown = (known: ReadonlySet<string>): number => {
  * that the information age is a sequence of discoveries over centuries rather than
  * a single leap; faster, larger lineages still separate from slower ones.
  */
-const RESEARCH_PER_PERSON_YEAR = 0.00172;
+const RESEARCH_PER_PERSON_YEAR = 0.0044;
 
-const researchRate = (era: number): number => RESEARCH_PER_PERSON_YEAR * (1 + era * 0.1);
+/** Move a value toward a target with a time constant in years. */
+const approach = (value: number, target: number, years: number, tau: number): number =>
+  value + (target - value) * (1 - Math.exp(-years / Math.max(1, tau)));
 
-interface Shock {
+const ageStructureFor = (fertility: number, lifeExpectancy: number): AgeStructure => {
+  const children = clamp(0.1 + 0.06 * (fertility - 1.2), 0.1, 0.45);
+  const elders = clamp(0.02 + 0.0045 * (lifeExpectancy - 25), 0.02, 0.3);
+  return { children, working: Math.max(0.2, 1 - children - elders), elders };
+};
+
+/** Commercial energy use rises with the mode of production, not the calendar. */
+const energyTarget = (era: number, known: ReadonlySet<string>): number => {
+  let target = 0.35 * pow(2.1, era);
+  if (known.has('Fossil fuel renaissance')) target *= 1.25;
+  if (known.has('Renewable energy')) target *= 0.9;
+  return clamp(target, 0.2, 250);
+};
+
+const pollutionControl = (state: FutureState, known: ReadonlySet<string>): number =>
+  clamp(
+    state.institutions * 0.2 +
+      (known.has('Renewable energy') ? 0.35 : 0) +
+      (known.has('Closed-loop ecology') ? 0.2 : 0) +
+      (known.has('Gene editing') ? 0.1 : 0) +
+      (known.has('Biosphere restoration') ? 0.1 : 0),
+    0,
+    0.9,
+  );
+
+const surfaceCapacity = (
+  state: FutureState,
+  era: number,
+  habitat: number,
+  known: ReadonlySet<string>,
+  initialPopulation: number,
+): number => {
+  if (habitat <= 0) return 0;
+  const base = initialPopulation * (1.8 + 0.55 * era);
+  return (
+    base *
+    habitat *
+    (0.7 + 0.3 * state.biosphere) *
+    (0.6 + 0.4 * state.resources) *
+    (0.9 + 0.15 * state.trade) *
+    (0.85 + 0.15 * state.institutions) *
+    (1 - 0.3 * state.pollution) *
+    (0.8 + 0.2 * state.technologyAccess) *
+    (known.has('Gene editing') ? 1.03 : 1)
+  );
+};
+
+const orbitalCapacity = (
+  era: number,
+  epoch: string,
+  known: ReadonlySet<string>,
+  initialPopulation: number,
+): number => {
+  if (!known.has('Orbital habitats')) return 0;
+  if (epoch === 'Stellar remnant' || epoch === 'Sterile') return 0;
+  const closedLoop = known.has('Closed-loop ecology') ? 1 : 0.45;
+  const base = initialPopulation * (0.08 + 0.04 * Math.max(0, era - 5)) * closedLoop;
+  return epoch === 'Red giant' ? base * 0.35 : base;
+};
+
+interface CrisisContext {
+  state: FutureState;
+  known: ReadonlySet<string>;
+  foodSecurity: number;
+  density: number;
+  unrest: number;
+  resourceStress: number;
+  climateStress: number;
+  temperatureC: number;
+}
+
+interface CrisisDefinition {
+  id: string;
   title: string;
   detail: string;
   factor: number;
-  /** Technologies that must already be known for this shock to make sense. */
+  can: (context: CrisisContext) => boolean;
+  weight: (context: CrisisContext) => number;
   requires?: readonly string[];
 }
 
-const SHOCKS: readonly Shock[] = [
-  { title: 'Plague', detail: 'A fast-spreading pathogen moves through the settlements.', factor: 0.62 },
-  { title: 'War', detail: 'A general war destroys infrastructure and suppresses births.', factor: 0.78 },
-  { title: 'Golden age', detail: 'Cheap energy and open exchange raise the carrying capacity.', factor: 1.18 },
-  { title: 'Migration', detail: 'A wave of settlement opens new land and new trade routes.', factor: 1.1 },
+const CRISES: readonly CrisisDefinition[] = [
   {
+    id: 'famine',
+    title: 'Famine',
+    detail: 'Harvests fell below demand as soil, water and fuel ran short.',
+    factor: 0.72,
+    can: (c) => c.state.surfacePopulation > 0 && c.foodSecurity < 0.92,
+    weight: (c) => (1 - c.foodSecurity) * 4 + c.state.pollution * 0.5,
+  },
+  {
+    id: 'epidemic',
+    title: 'Epidemic',
+    detail: 'Crowded settlements and limited sanitation let a pathogen spread.',
+    factor: 0.68,
+    can: (c) => c.state.surfacePopulation > 0 && c.density > 1.35 && c.state.urbanization > 0.12,
+    weight: (c) =>
+      (0.3 + c.state.urbanization * 0.8 + c.state.pollution * 0.3) *
+      (c.known.has('Antibiotics') ? 0.55 : 1) *
+      (c.known.has('Sanitation') ? 0.8 : 1),
+  },
+  {
+    id: 'war',
+    title: 'War',
+    detail: 'Resource and distributional conflict escalated into open war.',
+    factor: 0.8,
+    can: (c) =>
+      c.state.surfacePopulation > 0 &&
+      c.density > 1.5 &&
+      (c.state.inequality > 0.45 || c.resourceStress > 0.35) &&
+      c.state.institutions < 0.72,
+    weight: (c) => 0.4 + c.unrest * 1.2,
+  },
+  {
+    id: 'revolution',
+    title: 'Revolution',
+    detail: 'Literate city dwellers turned against a closed elite.',
+    factor: 0.88,
+    can: (c) =>
+      c.state.surfacePopulation > 0 &&
+      c.state.literacy > 0.4 &&
+      c.state.inequality > 0.5 &&
+      c.state.institutions < 0.62,
+    weight: (c) => 0.5 + c.unrest,
+  },
+  {
+    id: 'resource bust',
+    title: 'Resource bust',
+    detail: 'Easily accessible fuels and minerals ran out faster than substitutes arrived.',
+    factor: 0.85,
+    can: (c) => c.state.surfacePopulation > 0 && c.resourceStress > 0.65,
+    weight: (c) => c.resourceStress * 1.5,
+  },
+  {
+    id: 'machine disruption',
     title: 'Machine disruption',
     detail: 'Automation and artificial agents overturn the labour economy.',
-    factor: 0.68,
+    factor: 0.72,
     requires: ['Artificial intelligence'],
+    can: (c) =>
+      c.state.surfacePopulation > 0 &&
+      c.state.urbanization > 0.3 &&
+      c.state.inequality > 0.4,
+    weight: (c) => 0.5 + c.state.urbanization,
   },
-  { title: 'Climate shock', detail: 'A regional climate reversal strains food production.', factor: 0.9 },
+  {
+    id: 'climate shock',
+    title: 'Climate shock',
+    detail: 'A regional climate reversal strains food and water supplies.',
+    factor: 0.9,
+    can: (c) => c.state.surfacePopulation > 0 && (c.temperatureC > 30 || c.state.biosphere < 0.45),
+    weight: (c) => c.climateStress * 1.5,
+  },
+  {
+    id: 'migration',
+    title: 'Migration',
+    detail: 'People move toward surviving land, cities and trade routes.',
+    factor: 1.04,
+    can: (c) => c.state.surfacePopulation > 0 && (c.climateStress > 0.2 || c.foodSecurity < 0.75),
+    weight: (c) => 0.2 + c.climateStress,
+  },
+  {
+    id: 'golden age',
+    title: 'Golden age',
+    detail: 'Open exchange and capable institutions raise output and confidence.',
+    factor: 1.12,
+    can: (c) =>
+      c.state.surfacePopulation > 100 &&
+      c.state.institutions > 0.55 &&
+      c.state.trade > 0.4 &&
+      c.state.resources > 0.6 &&
+      c.foodSecurity > 0.9,
+    weight: () => 0.35,
+  },
 ];
+
+const chooseCrisis = (context: CrisisContext, years: number, rng: Rng): CrisisDefinition | undefined => {
+  const candidates = CRISES.filter(
+    (crisis) =>
+      (crisis.requires ?? []).every((technology) => context.known.has(technology)) && crisis.can(context),
+  );
+  if (candidates.length === 0) return undefined;
+  const weights = candidates.map((crisis) => Math.max(0.01, crisis.weight(context)));
+  const pressure = Math.max(...weights);
+  const chance = clamp((years / 500) * (0.15 + pressure), 0, 0.55);
+  if (!rng.chance(chance)) return undefined;
+  return candidates[rng.weightedIndex(weights)];
+};
 
 interface ActionChoice {
   id: string;
@@ -439,6 +756,8 @@ const buildResidents = (
   technologies: readonly string[],
   options: FutureHistoryOptions,
   region: FutureRegion,
+  surfacePopulation: number,
+  orbitalPopulation: number,
   rng: Rng,
 ): FutureResident[] => {
   if (population <= 0 || options.species.length === 0) return [];
@@ -454,6 +773,7 @@ const buildResidents = (
 
   const speciesWeights = options.species.map((species) => Math.max(1, species.population));
   const count = Math.max(1, Math.min(30, Math.round(30 * Math.sqrt(population / Math.max(1, options.initialPopulation)))));
+  const orbitalShare = orbitalPopulation / Math.max(1, surfacePopulation + orbitalPopulation);
   const residents: FutureResident[] = [];
 
   for (let index = 0; index < count; index++) {
@@ -465,7 +785,7 @@ const buildResidents = (
       : ANIMAL_ACTIONS;
     const action = actionPool[rng.int(0, actionPool.length)] ?? ANIMAL_ACTIONS[0]!;
     const cellChoice =
-      cellWeights.length > 0
+      surfacePopulation > 0 && cellWeights.length > 0
         ? cellWeights[rng.weightedIndex(cellWeights.map((entry) => entry.weight))]
         : { cell: options.centerCell };
     const known = species.sapient ? technologies.slice(-4) : [];
@@ -486,6 +806,7 @@ const buildResidents = (
       known: [...known],
       offspring: rng.int(0, species.sapient ? 5 : 3),
       sapient: species.sapient,
+      offWorld: surfacePopulation <= 0 || rng.chance(orbitalShare),
       x: ((Math.imul(id, 2654435761) >>> 0) % 1000) / 1000,
       y: ((Math.imul(id, 40503) >>> 0) % 1000) / 1000,
     });
@@ -494,10 +815,11 @@ const buildResidents = (
 };
 
 /**
- * Integrate the post-simulation future. Population follows a logistic carrying
- * capacity set by era and surface habitability. Research is the cumulative product
- * of living population and time; technologies unlock only when their own threshold
- * is met and their prerequisites are known.
+ * Integrate the post-simulation future. Population follows a fertility- and
+ * capacity-limited growth rule rather than a fixed logistic curve. The state also
+ * carries literacy, state capacity, technology adoption, energy, resources,
+ * pollution, biosphere health, trade and urbanisation, so crises and discoveries
+ * have causes rather than appearing on a calendar.
  */
 export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory => {
   const targetYears = options.deepTime.targetYears ?? 10_000_000_000;
@@ -508,61 +830,327 @@ export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory
   const events: FutureEvent[] = [];
   const frames: FutureFrame[] = [];
   const known = new Set<string>(sapient ? options.initialTechnologies : []);
+  const initialPopulation = Math.max(1, options.initialPopulation);
+  const initialEra = sapient ? eraForKnown(known) : 0;
 
-  let population = Math.max(0, options.initialPopulation);
+  const initialLiteracy = sapient
+    ? clamp(
+        0.03 +
+          (known.has('Writing') ? 0.1 : 0) +
+          (known.has('Printing') ? 0.2 : 0) +
+          (known.has('Scientific method') ? 0.1 : 0) +
+          initialEra * 0.015,
+        0.02,
+        0.75,
+      )
+    : 0;
+  const initialInstitutions = sapient
+    ? clamp(
+        0.08 +
+          (known.has('Writing') ? 0.08 : 0) +
+          (known.has('Printing') ? 0.08 : 0) +
+          initialEra * 0.02,
+        0.05,
+        0.75,
+      )
+    : 0;
+
+  const state: FutureState = {
+    population: initialPopulation,
+    surfacePopulation: initialPopulation,
+    orbitalPopulation: 0,
+    fertility: sapient ? 4.6 : 4,
+    lifeExpectancy: sapient ? 32 : 15,
+    literacy: initialLiteracy,
+    institutions: initialInstitutions,
+    urbanization: clamp(0.03 + initialEra * 0.012, 0.02, 0.2),
+    technologyAccess: sapient ? 0.75 : 0,
+    energyPerCapita: energyTarget(initialEra, known),
+    resources: 0.85,
+    pollution: 0.02,
+    biosphere: 0.92,
+    trade: clamp(0.04 + initialEra * 0.02, 0.04, 0.4),
+    inequality: 0.4,
+    pathBias: new Rng(
+      `${options.seed}:${options.place}:${options.species.map((species) => species.id).join(',')}:future-path`,
+      'future-path',
+    ).next(),
+  };
+
   let research = 0;
   let previousYear = startYear;
-  const initialPopulation = Math.max(1, options.initialPopulation);
+  let surfaceWasPopulated = state.surfacePopulation > 0;
 
   years.forEach((year, frameIndex) => {
     const deltaYears = Math.max(1, year - previousYear);
-    const state = deepTimeStateAt(options.deepTime, year);
-    const wasPopulated = population > 0;
-    const populationBefore = population;
+    const stateAtYear = deepTimeStateAt(options.deepTime, year);
+    const habitat = habitatFactor(stateAtYear.temperatureC, stateAtYear.epoch);
     const eraBefore = eraForKnown(known);
+    const totalBefore = state.population;
+    const surfaceBefore = state.surfacePopulation;
+    const transportCount = ['Cars', 'Telephones', 'Flight', 'Internet'].filter((technology) => known.has(technology)).length;
 
-    const carrier = Math.max(
-      0,
-      initialPopulation * (1.1 + 0.55 * eraBefore) * habitatFactor(state.temperatureC, state.epoch),
+    // Human and institutional capital change slowly. Their targets are driven by
+    // technology, settlement patterns and each other rather than a year number.
+    const literacyTarget = clamp(
+      0.02 +
+        (known.has('Writing') ? 0.1 : 0) +
+        (known.has('Printing') ? 0.25 : 0) +
+        (known.has('Scientific method') ? 0.15 : 0) +
+        (known.has('Computers') ? 0.08 : 0) +
+        (known.has('Internet') ? 0.12 : 0) +
+        state.institutions * 0.2 +
+        eraBefore * 0.04,
+      0.02,
+      0.98,
     );
-    let nextPopulation = carrier > 0 && population > 0 ? logistic(population, carrier, 0.0009, deltaYears) : 0;
+    state.literacy = approach(state.literacy, literacyTarget, deltaYears, 90);
 
-    if (nextPopulation > 0) {
-      const shockChance = clamp(deltaYears / 500, 0, 0.55);
-      if (rng.chance(shockChance)) {
-        const available = SHOCKS.filter((candidate) =>
-          (candidate.requires ?? []).every((technology) => known.has(technology)),
-        );
-        const shock = rng.pick(available);
-        const before = nextPopulation;
-        nextPopulation = clamp(nextPopulation * shock.factor, 20, carrier * 1.15);
-        events.push({
-          year,
-          title: `${shock.title} at ${options.place}`,
-          detail: `${Math.round(before).toLocaleString('en-US')} → ${Math.round(nextPopulation).toLocaleString('en-US')} people. ${shock.detail}`,
-        });
-      }
-      if (nextPopulation < 20) nextPopulation = Math.min(carrier, 20);
+    const urbanizationTarget = clamp(
+      0.03 + eraBefore * 0.035 + state.literacy * 0.18 + state.institutions * 0.1 + transportCount * 0.02,
+      0.03,
+      0.88,
+    );
+    state.urbanization = approach(state.urbanization, urbanizationTarget, deltaYears, 120);
+
+    const institutionsTarget = clamp(
+      0.08 +
+        state.literacy * 0.28 +
+        state.urbanization * 0.15 +
+        state.trade * 0.1 +
+        eraBefore * 0.04 +
+        (known.has('Writing') ? 0.05 : 0) +
+        (known.has('Printing') ? 0.08 : 0) +
+        (known.has('Scientific method') ? 0.08 : 0) +
+        (known.has('Internet') ? 0.05 : 0) +
+        (known.has('Open information order') ? 0.04 : 0) +
+        (known.has('Centralized automation') ? 0.08 : 0) -
+        state.inequality * 0.12,
+      0.03,
+      0.95,
+    );
+    state.institutions = approach(state.institutions, institutionsTarget, deltaYears, 100);
+
+    const tradeTarget = clamp(
+      0.04 + eraBefore * 0.04 + state.urbanization * 0.2 + state.institutions * 0.12 + transportCount * 0.07,
+      0.03,
+      0.96,
+    );
+    state.trade = approach(state.trade, tradeTarget, deltaYears, 90);
+
+    state.energyPerCapita = approach(
+      state.energyPerCapita,
+      energyTarget(eraBefore, known),
+      deltaYears,
+      80,
+    );
+
+    const controls = pollutionControl(state, known);
+    const pollutionTarget = clamp(
+      (0.25 * (state.energyPerCapita / 10) * (state.population / initialPopulation)) / (1 + controls * 3),
+      0,
+      0.92,
+    );
+    state.pollution = approach(state.pollution, pollutionTarget, deltaYears, 55);
+
+    const biosphereTarget = habitat > 0
+      ? clamp(
+          1 -
+            (state.surfacePopulation / initialPopulation) * 0.12 -
+            state.pollution * 0.45 -
+            (1 - state.resources) * 0.2 +
+            (known.has('Biosphere restoration') ? 0.12 : 0) +
+            (known.has('Closed-loop ecology') ? 0.04 : 0),
+          0.05,
+          1,
+        )
+      : 0;
+    state.biosphere = approach(state.biosphere, biosphereTarget, deltaYears, 140);
+
+    const extraction =
+      0.00005 *
+      (state.population / initialPopulation) *
+      (state.energyPerCapita / 10) *
+      (known.has('Asteroid mining') ? 0.35 : 1);
+    const regeneration =
+      0.00003 +
+      (1 - state.resources) * 0.00012 * (known.has('Asteroid mining') ? 1.5 : 1);
+    state.resources = clamp(state.resources + (regeneration - extraction) * deltaYears, 0, 1);
+
+    const frontierFertility =
+      clamp(1 - state.population / Math.max(1, initialPopulation * 0.8), 0, 1) * 0.9;
+    const fertilityTarget = sapient
+      ? clamp(
+          4.8 - state.literacy * 2.2 - state.urbanization * 1.1 - eraBefore * 0.04 + frontierFertility,
+          1.15,
+          6,
+        )
+      : 4;
+    state.fertility = approach(state.fertility, fertilityTarget, deltaYears, 110);
+
+    const lifeTarget = sapient
+      ? clamp(
+          27 +
+            state.institutions * 28 +
+            state.literacy * 22 +
+            eraBefore * 1.1 +
+            (known.has('Antibiotics') ? 5 : 0) +
+            (known.has('Medicine') ? 3 : 0),
+          25,
+          88,
+        )
+      : 15;
+    state.lifeExpectancy = approach(state.lifeExpectancy, lifeTarget, deltaYears, 120);
+
+    const inequalityTarget = clamp(
+      0.5 -
+        state.institutions * 0.22 -
+        state.literacy * 0.12 +
+        (known.has('Fossil fuel renaissance') ? 0.06 : 0) +
+        (known.has('Centralized automation') ? 0.08 : 0) -
+        (known.has('Open information order') ? 0.05 : 0),
+      0.12,
+      0.75,
+    );
+    state.inequality = approach(state.inequality, inequalityTarget, deltaYears, 90);
+
+    // New technologies need adoption, not just invention. Trade and education
+    // determine how quickly the frontier reaches ordinary settlements.
+    state.technologyAccess = approach(
+      state.technologyAccess,
+      1,
+      deltaYears,
+      110 - state.trade * 40,
+    );
+
+    if (!sapient) {
+      state.literacy = 0;
+      state.institutions = 0;
+      state.urbanization = 0;
+      state.trade = 0;
+      state.technologyAccess = 0;
+      state.energyPerCapita = 0.2;
+      state.inequality = 0;
     }
 
-    if (wasPopulated && nextPopulation <= 0) {
+    const capacitySurface = surfaceCapacity(state, eraBefore, habitat, known, initialPopulation);
+    const capacityOrbital = orbitalCapacity(eraBefore, stateAtYear.epoch, known, initialPopulation);
+    const totalCapacity = capacitySurface + capacityOrbital;
+    const age = ageStructureFor(state.fertility, state.lifeExpectancy);
+    const foodSecurity =
+      totalCapacity > 0 ? clamp(totalCapacity / Math.max(1, state.population), 0, 1.1) : 0;
+
+    const intrinsic = sapient
+      ? clamp(0.0012 * (state.fertility / 2.1 - 1), -0.002, 0.003)
+      : 0.0009;
+    let nextTotal =
+      totalCapacity > 0 && state.population > 0
+        ? intrinsic >= 0
+          ? logistic(state.population, totalCapacity, intrinsic, deltaYears)
+          : Math.min(state.population * Math.exp(intrinsic * deltaYears), totalCapacity * 1.05)
+        : 0;
+    // Orbital habitats are a refuge from a surface collapse. If the population
+    // falls below them, the people already living there remain. Natural growth can
+    // refill the habitats, but it cannot conjure residents who never left.
+    const orbitalRefuge = Math.min(capacityOrbital, Math.max(0, state.orbitalPopulation));
+    nextTotal = Math.max(nextTotal, orbitalRefuge);
+
+    const density = state.population / initialPopulation;
+    const unrest = clamp(
+      state.inequality * 0.5 + (1 - state.institutions) * 0.25 + (1 - foodSecurity) * 0.35,
+      0,
+      1,
+    );
+    const resourceStress = 1 - state.resources;
+    const climateStress = clamp(
+      Math.max(0, (stateAtYear.temperatureC - 28) / 35) + (1 - state.biosphere) * 0.9,
+      0,
+      1,
+    );
+
+    const crisis =
+      nextTotal > 0
+        ? chooseCrisis(
+            {
+              state,
+              known,
+              foodSecurity,
+              density,
+              unrest,
+              resourceStress,
+              climateStress,
+              temperatureC: stateAtYear.temperatureC,
+            },
+            deltaYears,
+            rng,
+          )
+        : undefined;
+
+    if (crisis && nextTotal >= 1) {
+      const before = nextTotal;
+      nextTotal = clamp(nextTotal * crisis.factor, 0, Math.max(20, totalCapacity * 1.15));
       events.push({
         year,
-        title: 'The last surface settlements fail',
-        detail: `The surface is no longer habitable. ${state.description}`,
+        title: `${crisis.title} at ${options.place}`,
+        detail: `${Math.round(before).toLocaleString('en-US')} → ${Math.round(nextTotal).toLocaleString('en-US')} people. ${crisis.detail}`,
       });
     }
 
-    population = Math.max(0, Math.round(nextPopulation));
+    if (totalCapacity <= 0) nextTotal = 0;
+    nextTotal = Math.max(0, Math.round(nextTotal));
 
+    const orbitalShareTarget = clamp(
+      0.04 + Math.max(0, eraBefore - 5) * 0.025 + state.trade * 0.08,
+      0.02,
+      0.55,
+    );
+    const orbitalPopulation =
+      capacityOrbital > 0
+        ? Math.min(capacityOrbital, nextTotal * (capacitySurface <= 0 ? 1 : orbitalShareTarget))
+        : 0;
+    const surfacePopulation = Math.max(0, nextTotal - orbitalPopulation);
+
+    state.population = nextTotal;
+    state.surfacePopulation = Math.round(surfacePopulation);
+    state.orbitalPopulation = Math.round(orbitalPopulation);
+
+    if (surfaceWasPopulated && state.surfacePopulation <= 0 && state.orbitalPopulation > 0) {
+      events.push({
+        year,
+        title: 'The surface is abandoned',
+        detail: `Orbital habitats keep ${state.orbitalPopulation.toLocaleString('en-US')} people alive after the surface becomes uninhabitable.`,
+      });
+    }
+    if (totalBefore > 0 && state.population <= 0) {
+      events.push({
+        year,
+        title: 'The last settlements fail',
+        detail:
+          habitat > 0
+            ? 'The last people die out. The surface is still habitable, but the society could not recover.'
+            : `The world can no longer support a population. ${stateAtYear.description}`,
+      });
+    }
+    surfaceWasPopulated = state.surfacePopulation > 0;
+
+    const workingPopulation = state.population * ageStructureFor(state.fertility, state.lifeExpectancy).working;
+    const branchResearch =
+      known.has('Open information order') ? 1.1 : known.has('Centralized automation') ? 1.04 : 1;
     const researchGain =
-      sapient && population > 0 && populationBefore > 0
-        ? ((populationBefore + population) / 2) * deltaYears * researchRate(eraBefore)
+      sapient && state.population > 0 && state.surfacePopulation > 0
+        ? workingPopulation *
+          deltaYears *
+          RESEARCH_PER_PERSON_YEAR *
+          (1 + eraBefore * 0.1) *
+          (0.3 + state.literacy * 0.7) *
+          (0.7 + state.institutions * 0.5) *
+          (0.55 + state.technologyAccess * 0.45) *
+          branchResearch
         : 0;
     const researchAtStart = research;
     let cumulativeCost = 0;
     for (;;) {
-      const next = nextTechnology(known);
+      const next = nextTechnology(known, state);
       if (!next) {
         research = 0;
         break;
@@ -572,6 +1160,7 @@ export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory
       const fraction = researchGain > 0 ? clamp((cumulativeCost - researchAtStart) / researchGain, 0, 1) : 1;
       const discoveryYear = Math.round(previousYear + deltaYears * fraction);
       known.add(next.name);
+      state.technologyAccess = clamp(state.technologyAccess - 0.08, 0.3, 1);
       events.push({
         year: discoveryYear,
         title: `${next.name} discovered`,
@@ -586,39 +1175,105 @@ export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory
 
     const techLevel = eraForKnown(known);
     const technologies = sapient ? knownTechnologyNames(known) : [];
-    const settlements = population > 0
-      ? Math.max(1, Math.round(options.initialSettlements * pow(population / initialPopulation, 0.55)))
-      : 0;
-    const scale = options.initialPopulation > 0 ? population / options.initialPopulation : 0;
+    const branches = branchNames(known);
+    const era = state.population > 0 ? (sapient ? TECH_ERAS[techLevel] ?? TECH_ERAS[0] : 'Wild biosphere') : 'Silent world';
+    const settlements =
+      surfacePopulation > 0
+        ? Math.max(
+            1,
+            Math.round(
+              options.initialSettlements *
+                pow(surfacePopulation / initialPopulation, 0.45) *
+                (1 - state.urbanization * 0.4),
+            ),
+          )
+        : 0;
+    const orbitalSettlements =
+      orbitalPopulation > 0
+        ? Math.max(1, Math.round(orbitalPopulation / Math.max(100, initialPopulation * 0.02)))
+        : 0;
+    const urbanPopulation = Math.round(surfacePopulation * state.urbanization);
+    const ruralPopulation = Math.max(0, Math.round(surfacePopulation) - urbanPopulation);
+    const foodPerCapita =
+      surfacePopulation > 0
+        ? clamp(
+            (capacitySurface / Math.max(1, surfacePopulation)) *
+              (0.7 + state.biosphere * 0.3) *
+              (0.7 + state.resources * 0.3),
+            0,
+            1.2,
+          )
+        : orbitalPopulation > 0
+          ? 0.8
+          : 0;
+    const ageStructure = ageStructureFor(state.fertility, state.lifeExpectancy);
+    const scale = surfacePopulation / initialPopulation;
     const region: FutureRegion = {
       ...options.region,
       population: options.region.population.map((count) => Math.max(0, Math.round(count * scale))),
     };
-    const era = population > 0
-      ? (sapient ? TECH_ERAS[techLevel] ?? TECH_ERAS[0] : 'Wild biosphere')
-      : 'Silent world';
-    const description = population > 0
-      ? `${era}: ${population.toLocaleString('en-US')} people across ${settlements.toLocaleString('en-US')} settlements, with ${technologies.length} technologies known. ${state.description}`
-      : `${state.description} No settlements remain.`;
+    const society = sapient
+      ? `${Math.round(state.literacy * 100)}% literate, institutions ${Math.round(state.institutions * 100)}%, urban ${Math.round(state.urbanization * 100)}%, trade ${Math.round(state.trade * 100)}%, ${state.energyPerCapita.toFixed(1)} MWh/person-year.`
+      : 'A wild biosphere with no technological society.';
+    const biosphere = `Biosphere ${Math.round(state.biosphere * 100)}%, pollution ${Math.round(state.pollution * 100)}%, resources ${Math.round(state.resources * 100)}%.`;
+    const description =
+      state.population > 0
+        ? `${era}: ${state.population.toLocaleString('en-US')} people ` +
+          `(${Math.round(surfacePopulation).toLocaleString('en-US')} surface, ${Math.round(orbitalPopulation).toLocaleString('en-US')} orbital) ` +
+          `across ${settlements.toLocaleString('en-US')} surface settlements, with ${technologies.length} technologies known. ` +
+          `${society} ${biosphere} ${stateAtYear.description}${branches.length ? ` Paths: ${branches.join(' and ')}.` : ''}`
+        : `${stateAtYear.description} No settlements remain.`;
 
     frames.push({
       kind: 'future',
       tick: 0,
       year,
-      epoch: state.epoch,
+      epoch: stateAtYear.epoch,
       description,
-      temperatureC: state.temperatureC,
-      luminositySolar: state.luminositySolar,
-      habitable: state.habitable,
+      temperatureC: stateAtYear.temperatureC,
+      luminositySolar: stateAtYear.luminositySolar,
+      habitable: stateAtYear.habitable,
       era,
       techLevel,
       technologies,
-      population,
+      population: state.population,
+      surfacePopulation: state.surfacePopulation,
+      orbitalPopulation: state.orbitalPopulation,
+      urbanPopulation,
+      ruralPopulation,
       settlements,
+      orbitalSettlements,
+      literacy: state.literacy,
+      institutions: state.institutions,
+      technologyAccess: state.technologyAccess,
+      urbanization: state.urbanization,
+      tradeConnectivity: state.trade,
+      energyPerCapita: state.energyPerCapita,
+      resourceStock: state.resources,
+      pollution: state.pollution,
+      biosphereHealth: state.biosphere,
+      foodPerCapita,
+      fertility: state.fertility,
+      lifeExpectancy: state.lifeExpectancy,
+      ageStructure,
+      branches,
       centerCell: options.centerCell,
       place: settlementName(options.centerCell, options.seed),
       region,
-      residents: population > 0 ? buildResidents(frameIndex, population, techLevel, technologies, options, region, rng) : [],
+      residents:
+        state.population > 0
+          ? buildResidents(
+              frameIndex,
+              state.population,
+              techLevel,
+              technologies,
+              options,
+              region,
+              state.surfacePopulation,
+              state.orbitalPopulation,
+              rng,
+            )
+          : [],
     });
     previousYear = year;
   });

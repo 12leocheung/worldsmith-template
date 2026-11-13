@@ -165,6 +165,8 @@ export const renderChronicle = (result: RunResult): string => {
     color:var(--text); font-size:11px; line-height:1.5;
   }
   .techline b { color:var(--gold); text-transform:uppercase; letter-spacing:.08em; }
+  .societyline { border-left-color:var(--blue); }
+  .societyline b { color:var(--blue); }
   .people { display:flex; flex-direction:column; gap:5px; max-height:330px; overflow:auto; padding-right:4px; }
   .person {
     display:flex; align-items:center; gap:8px; width:100%; text-align:left; cursor:pointer;
@@ -249,6 +251,7 @@ export const renderChronicle = (result: RunResult): string => {
       </div>
       <p class="place" id="place">—</p>
       <p class="techline" id="techline" hidden></p>
+      <p class="techline societyline" id="societyline" hidden></p>
       <div class="timeline">
         <div class="time-head">
           <button class="pixel" id="play">▶ play</button>
@@ -287,8 +290,8 @@ export const renderChronicle = (result: RunResult): string => {
         ${chronicle.snapshots.length} simulated frames · ${result.scenario.yearsTotal} simulated years,
         then ${chronicle.future?.frames.length ?? 0} future-history frames out to
         ${(chronicle.deepTime?.targetYears ?? 10_000_000_000).toLocaleString('en-US')} years.
-        The future is a coarse, seeded population-and-technology simulation, not a second
-        individual-level ecology; people persist until the surface becomes uninhabitable.
+        The future is a coarse, seeded society simulation with demographic change, technology
+        adoption, resources, trade and off-world settlement, not a second individual-level ecology.
       </p>
     </section>
   </div>
@@ -528,6 +531,23 @@ export const renderChronicle = (result: RunResult): string => {
       techline.hidden = true;
       techline.textContent = '';
     }
+    var societyline = document.getElementById('societyline');
+    if (s.kind === 'future' && s.literacy !== undefined && s.era !== 'Wild biosphere') {
+      societyline.hidden = false;
+      societyline.innerHTML = '<b>society:</b> ' +
+        'literacy ' + Math.round(s.literacy * 100) + '% · ' +
+        'institutions ' + Math.round(s.institutions * 100) + '% · ' +
+        'urban ' + Math.round(s.urbanization * 100) + '% · ' +
+        'trade ' + Math.round(s.tradeConnectivity * 100) + '% · ' +
+        'energy ' + s.energyPerCapita.toFixed(1) + ' MWh/person · ' +
+        'biosphere ' + Math.round(s.biosphereHealth * 100) + '% · ' +
+        'pollution ' + Math.round(s.pollution * 100) + '% · ' +
+        'resources ' + Math.round(s.resourceStock * 100) + '%' +
+        (s.orbitalPopulation > 0 ? ' · orbital ' + s.orbitalPopulation.toLocaleString() + ' people' : '');
+    } else {
+      societyline.hidden = true;
+      societyline.textContent = '';
+    }
     document.getElementById('year-label').textContent = 'year ' + s.year.toLocaleString();
     document.getElementById('time').value = String(index);
   }
@@ -545,7 +565,7 @@ export const renderChronicle = (result: RunResult): string => {
       var b = document.createElement('button');
       b.className = 'person' + (r.id === selectedId ? ' selected' : '');
       b.innerHTML = '<span class="swatch" style="background:' + r.color + '"></span>' +
-        '<span>' + r.name + '</span><span class="act">' + r.actionLabel + '</span>';
+        '<span>' + r.name + '</span><span class="act">' + r.actionLabel + (r.offWorld ? ' · orbital' : '') + '</span>';
       b.addEventListener('click', function () { selectedId = r.id; renderAll(); });
       holder.appendChild(b);
     });
@@ -570,14 +590,20 @@ export const renderChronicle = (result: RunResult): string => {
       var techLine = s.kind === 'future' && s.technologies && s.technologies.length
         ? '<p><b>Technologies:</b> ' + s.technologies.join(' · ') + '</p>'
         : '';
+      var socialLine = s.kind === 'future'
+        ? '<p><b>Population:</b> ' + s.surfacePopulation.toLocaleString() + ' surface · ' + s.orbitalPopulation.toLocaleString() + ' orbital · ' + s.urbanPopulation.toLocaleString() + ' urban · ' + s.ruralPopulation.toLocaleString() + ' rural</p>' +
+          '<p><b>Age structure:</b> ' + Math.round(s.ageStructure.children * 100) + '% children · ' + Math.round(s.ageStructure.working * 100) + '% working age · ' + Math.round(s.ageStructure.elders * 100) + '% elders · ' + s.fertility.toFixed(1) + ' children per woman, life expectancy ' + s.lifeExpectancy.toFixed(0) + '</p>' +
+          '<p><b>Adoption:</b> ' + Math.round(s.technologyAccess * 100) + '% of settlements use the latest technology · trade connectivity ' + Math.round(s.tradeConnectivity * 100) + '%</p>' +
+          (s.branches && s.branches.length ? '<p><b>Paths:</b> ' + s.branches.join(' · ') + '</p>' : '')
+        : '';
       holder.innerHTML = '<h3>' + s.place + '</h3><p class="species">' + (s.kind === 'future' ? s.era + ' · ' : '') + s.year + ' years · ' + s.population.toLocaleString() + ' people</p>' +
-        techLine +
+        techLine + socialLine +
         '<p>' + (s.kind === 'future' ? s.description : 'Click a pixel person in the scene or pick a name to see what they are doing. The highlighted tile is the largest settlement in this frame.') + '</p>';
       return;
     }
     var known = r.known.length ? r.known.join(' · ') : 'no formal knowledge';
     holder.innerHTML = '<h3>' + r.name + '</h3><p class="species">' + r.speciesName + ' · ' + r.actionLabel + '</p>' +
-      '<p>Age ' + r.ageYears.toFixed(0) + ' years · ' + (r.techs) + ' technologies · ' + r.offspring + ' offspring</p>' +
+      '<p>Age ' + r.ageYears.toFixed(0) + ' years · ' + (r.techs) + ' technologies · ' + r.offspring + ' offspring · ' + (r.offWorld ? 'orbital habitat' : 'surface') + '</p>' +
       '<div class="bars">' + bar('health', r.health, '#7ef0c0') + bar('energy', r.energy, '#ffd166') + '</div>' +
       '<p>Knows: ' + known + '</p>';
   }

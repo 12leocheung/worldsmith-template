@@ -103,6 +103,41 @@ test('a small, low-knowledge world is not handed 2026 technologies', () => {
   assert.ok(!present?.technologies.includes('Cars'));
 });
 
+test('society tracks demographic change, adoption, resources and off-world settlement', () => {
+  const history = buildFutureHistory(baseOptions);
+  const present = history.frames.find((frame) => frame.year === 2026);
+
+  assert.ok(present);
+  assert.ok(present.fertility < 4.6, 'fertility falls during the demographic transition');
+  assert.ok(present.literacy > 0 && present.literacy <= 1);
+  assert.ok(present.technologyAccess > 0 && present.technologyAccess <= 1);
+  assert.ok(present.energyPerCapita > 0);
+  assert.ok(present.resourceStock >= 0 && present.resourceStock <= 1);
+  assert.ok(present.pollution >= 0 && present.pollution <= 1);
+  assert.ok(present.biosphereHealth >= 0 && present.biosphereHealth <= 1);
+  assert.ok(present.foodPerCapita >= 0 && present.foodPerCapita <= 1.2);
+  const ageShare = present.ageStructure.children + present.ageStructure.working + present.ageStructure.elders;
+  assert.ok(Math.abs(ageShare - 1) < 1e-9, 'age shares sum to one');
+
+  const withOrbitals = history.frames.find((frame) => frame.orbitalPopulation > 0);
+  assert.ok(withOrbitals, 'orbital population appears once habitats exist');
+  assert.ok(withOrbitals.technologies.includes('Orbital habitats'));
+  assert.ok(withOrbitals.orbitalPopulation <= withOrbitals.population);
+  assert.ok(history.frames.some((frame) => frame.residents.some((resident) => resident.offWorld)));
+});
+
+test('technology paths are mutually exclusive and recorded', () => {
+  const history = buildFutureHistory(baseOptions);
+  const energy = ['Renewable energy', 'Fossil fuel renaissance'];
+  const governance = ['Open information order', 'Centralized automation'];
+
+  assert.ok(history.frames.some((frame) => frame.branches.length > 0), 'at least one path is chosen');
+  for (const frame of history.frames) {
+    assert.ok(frame.branches.filter((name) => energy.includes(name)).length <= 1);
+    assert.ok(frame.branches.filter((name) => governance.includes(name)).length <= 1);
+  }
+});
+
 test('machine disruption cannot happen before artificial intelligence', () => {
   const history = buildFutureHistory(baseOptions);
   const ai = history.events.find((event) => event.title === 'Artificial intelligence discovered');

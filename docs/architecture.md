@@ -47,11 +47,21 @@ not silently change the energy budget, but temporal resolution is genuinely lowe
 
 After the tick loop, `buildFutureHistory` extends the chronicle from the last simulated
 year to 10 Gyr. This is a coarse future-history model, not a second individual-level
-ecology: it integrates population, settlements, known technologies and research with a
-logistic carrying capacity, habitat loss and seeded shocks (plague, war, golden age,
-migration, climate, and machine disruption only after AI is known). Each frame
-contributes research proportional
-to the living population and current era; a technology unlocks only when its research
+ecology. It carries population age structure, fertility, life expectancy, literacy,
+institutions, technology adoption, urbanisation, trade connectivity, energy use,
+resource stocks, pollution, biosphere health and off-world population. Carrying capacity
+responds to food, resources, pollution and habitat. Advances in literacy and institutions
+raise research quality; adoption lag means a frontier discovery does not instantly reach
+every settlement. A pair of mutually exclusive paths is chosen from the world's
+political/ecological state (renewable vs extractive energy; open vs centralised
+information), and machine disruption only becomes possible after AI is known.
+
+Crises are selected from conditions rather than a calendar: famine from food shortfall,
+epidemics from crowding and weak sanitation, war and revolution from inequality and
+institutions, resource busts from depletion, climate shocks from temperature and
+biosphere stress, and golden ages from capable institutions and open trade. Each frame
+contributes research from the living working-age population, scaled by literacy,
+institutions and technology adoption; a technology unlocks only when its research
 threshold is crossed and its prerequisites are known, and receives a discovery event at
 the estimated year. Dates are therefore consequences of the run, not calendar
 assignments: 2026 shows whatever that world has learned by 2026. Near-future frames are
