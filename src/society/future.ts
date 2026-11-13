@@ -53,7 +53,6 @@ export interface FutureResident {
   techs: number;
   known: string[];
   offspring: number;
-  sapient: boolean;
   /** True for a resident of an orbital habitat rather than the surface. */
   offWorld: boolean;
   x: number;
@@ -176,7 +175,7 @@ interface TechnologyStep {
 }
 
 /** Coarse society state carried between future frames. */
-interface FutureState {
+export interface FutureState {
   population: number;
   surfacePopulation: number;
   orbitalPopulation: number;
@@ -419,6 +418,23 @@ const FUTURE_TECHNOLOGIES: TechnologyStep[] = [
 
 const ALL_TECHNOLOGIES: TechnologyStep[] = [...HISTORICAL_TECHNOLOGIES, ...FUTURE_TECHNOLOGIES];
 
+/**
+ * Pick one of a mutually exclusive pair from present conditions. The seeded civic
+ * tradition keeps different worlds from collapsing onto one path; ecology and
+ * political capacity decide which side of each split is viable now.
+ */
+export const branchChoice = (
+  group: 'energy' | 'governance',
+  state: Pick<FutureState, 'pathBias' | 'institutions' | 'pollution' | 'literacy'>,
+): 'Renewable energy' | 'Fossil fuel renaissance' | 'Open information order' | 'Centralized automation' => {
+  if (group === 'energy') {
+    const score = state.pathBias * 0.7 + state.institutions * 0.2 + state.pollution * 0.3;
+    return score >= 0.6 ? 'Renewable energy' : 'Fossil fuel renaissance';
+  }
+  const score = state.pathBias * 0.7 + state.literacy * 0.2 + state.institutions * 0.1;
+  return score >= 0.6 ? 'Open information order' : 'Centralized automation';
+};
+
 const nextTechnology = (known: ReadonlySet<string>, state: FutureState): TechnologyStep | undefined => {
   const usedGroups = new Set(
     ALL_TECHNOLOGIES.filter((tech) => tech.group && known.has(tech.name)).map((tech) => tech.group as string),
@@ -443,24 +459,9 @@ const nextTechnology = (known: ReadonlySet<string>, state: FutureState): Technol
   const firstGrouped = candidates.find((tech) => tech.group);
   if (firstGrouped?.group) {
     const options = candidates.filter((tech) => tech.group === firstGrouped.group);
-    if (options.length > 1) {
-      if (firstGrouped.group === 'energy') {
-        const renewable = options.find((tech) => tech.name === 'Renewable energy');
-        const fossil = options.find((tech) => tech.name === 'Fossil fuel renaissance');
-        if (renewable && fossil) {
-          const score = state.pathBias * 0.7 + state.institutions * 0.2 + state.pollution * 0.3;
-          return score >= 0.6 ? renewable : fossil;
-        }
-      }
-      if (firstGrouped.group === 'governance') {
-        const open = options.find((tech) => tech.name === 'Open information order');
-        const centralized = options.find((tech) => tech.name === 'Centralized automation');
-        if (open && centralized) {
-          const score = state.pathBias * 0.7 + state.literacy * 0.2 + state.institutions * 0.1;
-          return score >= 0.6 ? open : centralized;
-        }
-      }
-      return options[0];
+    if (options.length > 1 && (firstGrouped.group === 'energy' || firstGrouped.group === 'governance')) {
+      const choice = branchChoice(firstGrouped.group, state);
+      return options.find((tech) => tech.name === choice) ?? options[0];
     }
     return options[0];
   }
@@ -553,7 +554,7 @@ const orbitalCapacity = (
   return epoch === 'Red giant' ? base * 0.35 : base;
 };
 
-interface CrisisContext {
+export interface CrisisContext {
   state: FutureState;
   known: ReadonlySet<string>;
   foodSecurity: number;
@@ -564,7 +565,7 @@ interface CrisisContext {
   temperatureC: number;
 }
 
-interface CrisisDefinition {
+export interface CrisisDefinition {
   id: string;
   title: string;
   detail: string;
@@ -669,11 +670,14 @@ const CRISES: readonly CrisisDefinition[] = [
   },
 ];
 
-const chooseCrisis = (context: CrisisContext, years: number, rng: Rng): CrisisDefinition | undefined => {
-  const candidates = CRISES.filter(
+export const eligibleCrises = (context: CrisisContext): CrisisDefinition[] =>
+  CRISES.filter(
     (crisis) =>
       (crisis.requires ?? []).every((technology) => context.known.has(technology)) && crisis.can(context),
   );
+
+const chooseCrisis = (context: CrisisContext, years: number, rng: Rng): CrisisDefinition | undefined => {
+  const candidates = eligibleCrises(context);
   if (candidates.length === 0) return undefined;
   const weights = candidates.map((crisis) => Math.max(0.01, crisis.weight(context)));
   const pressure = Math.max(...weights);
@@ -805,7 +809,6 @@ const buildResidents = (
       techs: species.sapient ? technologies.length : 0,
       known: [...known],
       offspring: rng.int(0, species.sapient ? 5 : 3),
-      sapient: species.sapient,
       offWorld: surfacePopulation <= 0 || rng.chance(orbitalShare),
       x: ((Math.imul(id, 2654435761) >>> 0) % 1000) / 1000,
       y: ((Math.imul(id, 40503) >>> 0) % 1000) / 1000,
@@ -887,7 +890,6 @@ export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory
     const habitat = habitatFactor(stateAtYear.temperatureC, stateAtYear.epoch);
     const eraBefore = eraForKnown(known);
     const totalBefore = state.population;
-    const surfaceBefore = state.surfacePopulation;
     const transportCount = ['Cars', 'Telephones', 'Flight', 'Internet'].filter((technology) => known.has(technology)).length;
 
     // Human and institutional capital change slowly. Their targets are driven by
@@ -1036,7 +1038,6 @@ export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory
     const capacitySurface = surfaceCapacity(state, eraBefore, habitat, known, initialPopulation);
     const capacityOrbital = orbitalCapacity(eraBefore, stateAtYear.epoch, known, initialPopulation);
     const totalCapacity = capacitySurface + capacityOrbital;
-    const age = ageStructureFor(state.fertility, state.lifeExpectancy);
     const foodSecurity =
       totalCapacity > 0 ? clamp(totalCapacity / Math.max(1, state.population), 0, 1.1) : 0;
 
@@ -1108,11 +1109,9 @@ export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory
       capacityOrbital > 0
         ? Math.min(capacityOrbital, nextTotal * (capacitySurface <= 0 ? 1 : orbitalShareTarget))
         : 0;
-    const surfacePopulation = Math.max(0, nextTotal - orbitalPopulation);
-
     state.population = nextTotal;
-    state.surfacePopulation = Math.round(surfacePopulation);
-    state.orbitalPopulation = Math.round(orbitalPopulation);
+    state.orbitalPopulation = Math.min(nextTotal, Math.round(orbitalPopulation));
+    state.surfacePopulation = nextTotal - state.orbitalPopulation;
 
     if (surfaceWasPopulated && state.surfacePopulation <= 0 && state.orbitalPopulation > 0) {
       events.push({
@@ -1178,49 +1177,59 @@ export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory
     const branches = branchNames(known);
     const era = state.population > 0 ? (sapient ? TECH_ERAS[techLevel] ?? TECH_ERAS[0] : 'Wild biosphere') : 'Silent world';
     const settlements =
-      surfacePopulation > 0
+      state.surfacePopulation > 0
         ? Math.max(
             1,
             Math.round(
               options.initialSettlements *
-                pow(surfacePopulation / initialPopulation, 0.45) *
+                pow(state.surfacePopulation / initialPopulation, 0.45) *
                 (1 - state.urbanization * 0.4),
             ),
           )
         : 0;
     const orbitalSettlements =
-      orbitalPopulation > 0
-        ? Math.max(1, Math.round(orbitalPopulation / Math.max(100, initialPopulation * 0.02)))
+      state.orbitalPopulation > 0
+        ? Math.max(1, Math.round(state.orbitalPopulation / Math.max(100, initialPopulation * 0.02)))
         : 0;
-    const urbanPopulation = Math.round(surfacePopulation * state.urbanization);
-    const ruralPopulation = Math.max(0, Math.round(surfacePopulation) - urbanPopulation);
+    const urbanPopulation = Math.round(state.surfacePopulation * state.urbanization);
+    const ruralPopulation = Math.max(0, state.surfacePopulation - urbanPopulation);
     const foodPerCapita =
-      surfacePopulation > 0
+      state.surfacePopulation > 0
         ? clamp(
-            (capacitySurface / Math.max(1, surfacePopulation)) *
+            (capacitySurface / Math.max(1, state.surfacePopulation)) *
               (0.7 + state.biosphere * 0.3) *
               (0.7 + state.resources * 0.3),
             0,
             1.2,
           )
-        : orbitalPopulation > 0
+        : state.orbitalPopulation > 0
           ? 0.8
           : 0;
     const ageStructure = ageStructureFor(state.fertility, state.lifeExpectancy);
-    const scale = surfacePopulation / initialPopulation;
+    const scale = state.surfacePopulation / initialPopulation;
     const region: FutureRegion = {
       ...options.region,
       population: options.region.population.map((count) => Math.max(0, Math.round(count * scale))),
     };
-    const society = sapient
-      ? `${Math.round(state.literacy * 100)}% literate, institutions ${Math.round(state.institutions * 100)}%, urban ${Math.round(state.urbanization * 100)}%, trade ${Math.round(state.trade * 100)}%, ${state.energyPerCapita.toFixed(1)} MWh/person-year.`
-      : 'A wild biosphere with no technological society.';
-    const biosphere = `Biosphere ${Math.round(state.biosphere * 100)}%, pollution ${Math.round(state.pollution * 100)}%, resources ${Math.round(state.resources * 100)}%.`;
+    const societyParts = [
+      `${Math.round(state.literacy * 100)}% literate`,
+      `institutions ${Math.round(state.institutions * 100)}%`,
+    ];
+    if (state.surfacePopulation > 0) societyParts.push(`urban ${Math.round(state.urbanization * 100)}%`);
+    societyParts.push(
+      `trade ${Math.round(state.trade * 100)}%`,
+      `${state.energyPerCapita.toFixed(1)} MWh/person-year`,
+    );
+    const society = sapient ? `${societyParts.join(', ')}.` : 'A wild biosphere with no technological society.';
+    const biosphere = `Biosphere ${Math.round(state.biosphere * 100)}%, pollution ${Math.round(state.pollution * 100)}%, resource stock ${Math.round(state.resources * 100)}%.`;
+    const settlementParts = [`${settlements.toLocaleString('en-US')} surface`];
+    if (orbitalSettlements > 0) settlementParts.push(`${orbitalSettlements.toLocaleString('en-US')} orbital`);
+    const settlementSummary = `${settlementParts.join(' and ')} settlement${settlements + orbitalSettlements === 1 ? '' : 's'}`;
     const description =
       state.population > 0
         ? `${era}: ${state.population.toLocaleString('en-US')} people ` +
-          `(${Math.round(surfacePopulation).toLocaleString('en-US')} surface, ${Math.round(orbitalPopulation).toLocaleString('en-US')} orbital) ` +
-          `across ${settlements.toLocaleString('en-US')} surface settlements, with ${technologies.length} technologies known. ` +
+          `(${state.surfacePopulation.toLocaleString('en-US')} surface, ${state.orbitalPopulation.toLocaleString('en-US')} orbital) ` +
+          `across ${settlementSummary}, with ${technologies.length} technologies known. ` +
           `${society} ${biosphere} ${stateAtYear.description}${branches.length ? ` Paths: ${branches.join(' and ')}.` : ''}`
         : `${stateAtYear.description} No settlements remain.`;
 

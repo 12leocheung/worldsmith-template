@@ -1,8 +1,54 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import earthlike from '../scenarios/earthlike.ts';
-import { buildFutureHistory, type FutureHistoryOptions } from '../src/society/future.ts';
+import {
+  branchChoice,
+  buildFutureHistory,
+  eligibleCrises,
+  type CrisisContext,
+  type FutureHistoryOptions,
+  type FutureState,
+} from '../src/society/future.ts';
 import { World } from '../src/engine/world.ts';
+
+const crisisBaseState: FutureState = {
+  population: 1_000,
+  surfacePopulation: 1_000,
+  orbitalPopulation: 0,
+  fertility: 2.1,
+  lifeExpectancy: 70,
+  literacy: 0.6,
+  institutions: 0.6,
+  urbanization: 0.4,
+  technologyAccess: 0.8,
+  energyPerCapita: 10,
+  resources: 0.8,
+  pollution: 0.1,
+  biosphere: 0.8,
+  trade: 0.5,
+  inequality: 0.3,
+  pathBias: 0.5,
+};
+
+const stateWith = (overrides: Partial<FutureState>): FutureState => ({
+  ...crisisBaseState,
+  ...overrides,
+});
+
+const crisisContext = (overrides: Partial<CrisisContext> = {}): CrisisContext => ({
+  state: stateWith(overrides.state ?? {}),
+  known: overrides.known ?? new Set<string>(),
+  foodSecurity: 1,
+  density: 1,
+  unrest: 0.2,
+  resourceStress: 0,
+  climateStress: 0,
+  temperatureC: 20,
+  ...overrides,
+});
+
+const crisisIds = (overrides: Partial<CrisisContext> = {}): string[] =>
+  eligibleCrises(crisisContext(overrides)).map((crisis) => crisis.id);
 
 const baseOptions: FutureHistoryOptions = {
   seed: 42,
@@ -123,7 +169,75 @@ test('society tracks demographic change, adoption, resources and off-world settl
   assert.ok(withOrbitals, 'orbital population appears once habitats exist');
   assert.ok(withOrbitals.technologies.includes('Orbital habitats'));
   assert.ok(withOrbitals.orbitalPopulation <= withOrbitals.population);
+  assert.ok(withOrbitals.orbitalSettlements > 0);
   assert.ok(history.frames.some((frame) => frame.residents.some((resident) => resident.offWorld)));
+});
+
+test('crisis conditions follow food, crowding and public health', () => {
+  assert.ok(crisisIds({ foodSecurity: 0.5 }).includes('famine'));
+  assert.ok(
+    !crisisIds({ foodSecurity: 0.5, state: stateWith({ surfacePopulation: 0 }) }).includes('famine'),
+    'famine requires a surface population',
+  );
+
+  const crowded = { density: 1.5, state: stateWith({ urbanization: 0.5 }) };
+  assert.ok(crisisIds(crowded).includes('epidemic'));
+  assert.ok(!crisisIds({ ...crowded, density: 1 }).includes('epidemic'));
+});
+
+test('crisis conditions follow conflict, depletion and automation', () => {
+  const unequal = {
+    density: 2,
+    state: stateWith({ inequality: 0.6, institutions: 0.5, literacy: 0.6 }),
+  };
+  assert.ok(crisisIds(unequal).includes('war'));
+  assert.ok(crisisIds(unequal).includes('revolution'));
+  assert.ok(crisisIds({ resourceStress: 0.8 }).includes('resource bust'));
+
+  const automated = { state: stateWith({ urbanization: 0.5, inequality: 0.5 }) };
+  assert.ok(!crisisIds(automated).includes('machine disruption'));
+  assert.ok(
+    crisisIds({ ...automated, known: new Set(['Artificial intelligence']) }).includes('machine disruption'),
+    'machine disruption requires AI',
+  );
+});
+
+test('crisis conditions follow ecology and prosperity', () => {
+  assert.ok(crisisIds({ temperatureC: 32 }).includes('climate shock'));
+  assert.ok(crisisIds({ state: stateWith({ biosphere: 0.3 }) }).includes('climate shock'));
+
+  const golden = {
+    state: stateWith({ population: 500, surfacePopulation: 500, institutions: 0.8, trade: 0.8, resources: 0.8 }),
+    foodSecurity: 1,
+  };
+  assert.ok(crisisIds(golden).includes('golden age'));
+  assert.ok(!crisisIds({ ...golden, foodSecurity: 0.8 }).includes('golden age'));
+});
+
+test('technology branch choices follow present conditions', () => {
+  const open = { pathBias: 0.9, institutions: 0.8, pollution: 0.4, literacy: 0.9 };
+
+  assert.equal(branchChoice('energy', open), 'Renewable energy');
+  assert.equal(
+    branchChoice('energy', { ...open, pathBias: 0, institutions: 0, pollution: 0 }),
+    'Fossil fuel renaissance',
+  );
+  assert.equal(branchChoice('governance', open), 'Open information order');
+  assert.equal(
+    branchChoice('governance', { ...open, pathBias: 0, institutions: 0.1, literacy: 0 }),
+    'Centralized automation',
+  );
+});
+
+test('population splits and settlement counts stay consistent', () => {
+  const history = buildFutureHistory(baseOptions);
+
+  for (const frame of history.frames) {
+    assert.equal(frame.surfacePopulation + frame.orbitalPopulation, frame.population);
+    if (frame.surfacePopulation === 0) {
+      assert.equal(frame.settlements, 0, `${frame.year} has no surface settlements`);
+    }
+  }
 });
 
 test('technology paths are mutually exclusive and recorded', () => {

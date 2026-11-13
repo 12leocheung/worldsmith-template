@@ -533,17 +533,19 @@ export const renderChronicle = (result: RunResult): string => {
     }
     var societyline = document.getElementById('societyline');
     if (s.kind === 'future' && s.literacy !== undefined && s.era !== 'Wild biosphere') {
+      var parts = [
+        'literacy ' + Math.round(s.literacy * 100) + '%',
+        'institutions ' + Math.round(s.institutions * 100) + '%'
+      ];
+      if (s.surfacePopulation > 0) parts.push('urban ' + Math.round(s.urbanization * 100) + '%');
+      parts.push('trade connectivity ' + Math.round(s.tradeConnectivity * 100) + '%');
+      parts.push('energy ' + s.energyPerCapita.toFixed(1) + ' MWh/person-year');
+      parts.push('biosphere health ' + Math.round(s.biosphereHealth * 100) + '%');
+      parts.push('pollution ' + Math.round(s.pollution * 100) + '%');
+      parts.push('resource stock ' + Math.round(s.resourceStock * 100) + '%');
+      if (s.orbitalPopulation > 0) parts.push('orbital ' + s.orbitalPopulation.toLocaleString() + ' people');
       societyline.hidden = false;
-      societyline.innerHTML = '<b>society:</b> ' +
-        'literacy ' + Math.round(s.literacy * 100) + '% · ' +
-        'institutions ' + Math.round(s.institutions * 100) + '% · ' +
-        'urban ' + Math.round(s.urbanization * 100) + '% · ' +
-        'trade ' + Math.round(s.tradeConnectivity * 100) + '% · ' +
-        'energy ' + s.energyPerCapita.toFixed(1) + ' MWh/person · ' +
-        'biosphere ' + Math.round(s.biosphereHealth * 100) + '% · ' +
-        'pollution ' + Math.round(s.pollution * 100) + '% · ' +
-        'resources ' + Math.round(s.resourceStock * 100) + '%' +
-        (s.orbitalPopulation > 0 ? ' · orbital ' + s.orbitalPopulation.toLocaleString() + ' people' : '');
+      societyline.innerHTML = '<b>society:</b> ' + parts.join(' · ');
     } else {
       societyline.hidden = true;
       societyline.textContent = '';
@@ -590,12 +592,18 @@ export const renderChronicle = (result: RunResult): string => {
       var techLine = s.kind === 'future' && s.technologies && s.technologies.length
         ? '<p><b>Technologies:</b> ' + s.technologies.join(' · ') + '</p>'
         : '';
-      var socialLine = s.kind === 'future'
-        ? '<p><b>Population:</b> ' + s.surfacePopulation.toLocaleString() + ' surface · ' + s.orbitalPopulation.toLocaleString() + ' orbital · ' + s.urbanPopulation.toLocaleString() + ' urban · ' + s.ruralPopulation.toLocaleString() + ' rural</p>' +
-          '<p><b>Age structure:</b> ' + Math.round(s.ageStructure.children * 100) + '% children · ' + Math.round(s.ageStructure.working * 100) + '% working age · ' + Math.round(s.ageStructure.elders * 100) + '% elders · ' + s.fertility.toFixed(1) + ' children per woman, life expectancy ' + s.lifeExpectancy.toFixed(0) + '</p>' +
-          '<p><b>Adoption:</b> ' + Math.round(s.technologyAccess * 100) + '% of settlements use the latest technology · trade connectivity ' + Math.round(s.tradeConnectivity * 100) + '%</p>' +
-          (s.branches && s.branches.length ? '<p><b>Paths:</b> ' + s.branches.join(' · ') + '</p>' : '')
-        : '';
+      var socialLine = '';
+      if (s.kind === 'future') {
+        var populationLine = '<p><b>Population:</b> ' + s.surfacePopulation.toLocaleString() + ' surface · ' + s.orbitalPopulation.toLocaleString() + ' orbital' +
+          (s.surfacePopulation > 0 ? ' · ' + s.urbanPopulation.toLocaleString() + ' urban · ' + s.ruralPopulation.toLocaleString() + ' rural' : '') + '</p>';
+        var settlementLine = '<p><b>Settlements:</b> ' + s.settlements.toLocaleString() + ' surface' +
+          ((s.orbitalSettlements || 0) > 0 ? ' · ' + s.orbitalSettlements.toLocaleString() + ' orbital' : '') + '</p>';
+        socialLine = populationLine +
+          settlementLine +
+          '<p><b>Age structure:</b> ' + Math.round(s.ageStructure.children * 100) + '% children · ' + Math.round(s.ageStructure.working * 100) + '% working age · ' + Math.round(s.ageStructure.elders * 100) + '% elders · ' + s.fertility.toFixed(1) + ' children per woman, life expectancy ' + s.lifeExpectancy.toFixed(0) + ' years</p>' +
+          '<p><b>Food:</b> ' + s.foodPerCapita.toFixed(2) + '× demand · <b>Adoption:</b> ' + Math.round(s.technologyAccess * 100) + '% technology access · trade connectivity ' + Math.round(s.tradeConnectivity * 100) + '%</p>' +
+          (s.branches && s.branches.length ? '<p><b>Paths:</b> ' + s.branches.join(' · ') + '</p>' : '');
+      }
       holder.innerHTML = '<h3>' + s.place + '</h3><p class="species">' + (s.kind === 'future' ? s.era + ' · ' : '') + s.year + ' years · ' + s.population.toLocaleString() + ' people</p>' +
         techLine + socialLine +
         '<p>' + (s.kind === 'future' ? s.description : 'Click a pixel person in the scene or pick a name to see what they are doing. The highlighted tile is the largest settlement in this frame.') + '</p>';

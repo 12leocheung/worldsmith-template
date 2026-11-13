@@ -28,7 +28,7 @@ npm run sim -- list         # list the experiment scenarios
 npm run sim -- inspect scenarios/earthlike.ts
 npm run sim -- run scenarios/earthlike.ts
 npm run sim -- compare scenarios/earthlike.ts scenarios/hypercognitive.ts --ticks 200
-npm test                    # 54 tests
+npm test                    # 59 tests
 npm run typecheck
 ```
 
