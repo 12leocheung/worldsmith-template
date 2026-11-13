@@ -49,7 +49,8 @@ After the tick loop, `buildFutureHistory` extends the chronicle from the last si
 year to 10 Gyr. This is a coarse future-history model, not a second individual-level
 ecology: it integrates population, settlements, known technologies and research with a
 logistic carrying capacity, habitat loss and seeded shocks (plague, war, golden age,
-migration, machine disruption, climate). Each frame contributes research proportional
+migration, climate, and machine disruption only after AI is known). Each frame
+contributes research proportional
 to the living population and current era; a technology unlocks only when its research
 threshold is crossed and its prerequisites are known, and receives a discovery event at
 the estimated year. Dates are therefore consequences of the run, not calendar

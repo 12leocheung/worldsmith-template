@@ -347,6 +347,8 @@ interface Shock {
   title: string;
   detail: string;
   factor: number;
+  /** Technologies that must already be known for this shock to make sense. */
+  requires?: readonly string[];
 }
 
 const SHOCKS: readonly Shock[] = [
@@ -354,7 +356,12 @@ const SHOCKS: readonly Shock[] = [
   { title: 'War', detail: 'A general war destroys infrastructure and suppresses births.', factor: 0.78 },
   { title: 'Golden age', detail: 'Cheap energy and open exchange raise the carrying capacity.', factor: 1.18 },
   { title: 'Migration', detail: 'A wave of settlement opens new land and new trade routes.', factor: 1.1 },
-  { title: 'Machine disruption', detail: 'Automation and artificial agents overturn the labour economy.', factor: 0.68 },
+  {
+    title: 'Machine disruption',
+    detail: 'Automation and artificial agents overturn the labour economy.',
+    factor: 0.68,
+    requires: ['Artificial intelligence'],
+  },
   { title: 'Climate shock', detail: 'A regional climate reversal strains food production.', factor: 0.9 },
 ];
 
@@ -523,7 +530,10 @@ export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory
     if (nextPopulation > 0) {
       const shockChance = clamp(deltaYears / 500, 0, 0.55);
       if (rng.chance(shockChance)) {
-        const shock = rng.pick(SHOCKS);
+        const available = SHOCKS.filter((candidate) =>
+          (candidate.requires ?? []).every((technology) => known.has(technology)),
+        );
+        const shock = rng.pick(available);
         const before = nextPopulation;
         nextPopulation = clamp(nextPopulation * shock.factor, 20, carrier * 1.15);
         events.push({

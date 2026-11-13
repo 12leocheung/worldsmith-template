@@ -103,6 +103,18 @@ test('a small, low-knowledge world is not handed 2026 technologies', () => {
   assert.ok(!present?.technologies.includes('Cars'));
 });
 
+test('machine disruption cannot happen before artificial intelligence', () => {
+  const history = buildFutureHistory(baseOptions);
+  const ai = history.events.find((event) => event.title === 'Artificial intelligence discovered');
+  const disruptions = history.events.filter((event) => event.title.startsWith('Machine disruption'));
+
+  for (const disruption of disruptions) {
+    assert.ok(ai, 'machine disruption requires AI to exist');
+    assert.ok(disruption.year >= ai.year, 'machine disruption cannot predate AI');
+  }
+  assert.ok(!history.events.some((event) => event.year === 625 && event.title.startsWith('Machine disruption')));
+});
+
 test('different seeds produce different futures', () => {
   const a = buildFutureHistory(baseOptions);
   const b = buildFutureHistory({ ...baseOptions, seed: 43 });
