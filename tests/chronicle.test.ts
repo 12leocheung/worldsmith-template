@@ -41,5 +41,4 @@ test('the chronicle page embeds the scene, people and ledger data', () => {
   assert.ok(html.includes('deep time'));
   assert.ok(html.includes('10,000,000,000'));
   assert.ok(html.includes('id="techline"'));
-  assert.ok(html.includes('2026 technologies'));
 });

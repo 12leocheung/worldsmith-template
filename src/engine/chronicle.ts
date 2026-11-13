@@ -522,7 +522,8 @@ export const renderChronicle = (result: RunResult): string => {
     var techline = document.getElementById('techline');
     if (s.kind === 'future' && s.technologies && s.technologies.length) {
       techline.hidden = false;
-      techline.innerHTML = '<b>' + (s.year === 2026 ? '2026 technologies' : s.era + ' technologies') + ':</b> ' + s.technologies.join(' · ');
+      var shown = s.technologies.slice(-12);
+      techline.innerHTML = '<b>' + s.era + ' technologies (' + s.technologies.length + '):</b> ' + shown.join(' · ') + (s.technologies.length > shown.length ? ' · …' : '');
     } else {
       techline.hidden = true;
       techline.textContent = '';

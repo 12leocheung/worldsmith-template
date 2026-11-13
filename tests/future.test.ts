@@ -9,7 +9,22 @@ const baseOptions: FutureHistoryOptions = {
   startYear: 600,
   initialPopulation: 5_000,
   initialSettlements: 200,
-  initialTechnologyCount: 14,
+  initialTechnologies: [
+    'Fire',
+    'Stone tools',
+    'Language',
+    'Cooking',
+    'Clothing and shelter',
+    'Agriculture',
+    'Animal husbandry',
+    'Pottery',
+    'Writing',
+    'Metallurgy',
+    'Mathematics',
+    'Sanitation',
+    'Medicine',
+    'Printing',
+  ],
   species: [{ id: 'human', name: 'Human', color: '#f2c14e', population: 5_000, sapient: true }],
   region: {
     width: 3,
@@ -51,13 +66,9 @@ test('future history is deterministic and populated past the historical run', ()
   assert.ok(present, '2026 is explicitly represented');
   assert.ok((present?.population ?? 0) > 0);
   assert.ok((present?.residents.length ?? 0) > 0);
-  assert.ok(present?.technologies.includes('Cars'));
-  assert.ok(present?.technologies.includes('Computers'));
-  assert.ok(present?.technologies.includes('Artificial intelligence (AI)'));
-  assert.match(present?.description ?? '', /Cars, computers, the internet/);
-  const presentEvent = a.events.find((event) => event.year === 2026 && event.title === 'The present day');
-  assert.ok(presentEvent);
-  assert.match(presentEvent?.detail ?? '', /cars, computers, the internet/);
+  assert.ok(present?.technologies.includes('Printing'), 'starts from the historical knowledge set');
+  assert.ok(a.events.some((event) => event.title.endsWith(' discovered')), 'technologies are discovered, not assigned');
+  assert.ok((present?.technologies.length ?? 0) > 0);
 });
 
 test('future technology rises monotonically and frames keep their residents', () => {
@@ -66,12 +77,30 @@ test('future technology rises monotonically and frames keep their residents', ()
     const frame = history.frames[index]!;
     if (index > 0) {
       assert.ok(frame.techLevel >= history.frames[index - 1]!.techLevel, 'technology does not go backwards');
+      assert.ok(frame.technologies.length >= history.frames[index - 1]!.technologies.length, 'knowledge does not go backwards');
     }
     if (frame.population > 0) {
       assert.ok(frame.residents.length > 0, 'a populated frame has residents');
       assert.ok(frame.residents.every((resident) => resident.name.length > 0));
     }
   }
+});
+
+test('a small, low-knowledge world is not handed 2026 technologies', () => {
+  const history = buildFutureHistory({
+    ...baseOptions,
+    initialPopulation: 50,
+    initialSettlements: 2,
+    initialTechnologies: ['Stone tools'],
+    species: [{ id: 'human', name: 'Human', color: '#f2c14e', population: 50, sapient: true }],
+  });
+  const present = history.frames.find((frame) => frame.year === 2026);
+
+  assert.ok(present, '2026 still exists as a date');
+  assert.ok((present?.population ?? 0) > 0);
+  assert.ok(!present?.technologies.includes('Computers'));
+  assert.ok(!present?.technologies.includes('Artificial intelligence'));
+  assert.ok(!present?.technologies.includes('Cars'));
 });
 
 test('different seeds produce different futures', () => {
@@ -90,5 +119,5 @@ test('a generated world records a populated future including 2026', () => {
 
   assert.equal(future.frames.at(-1)?.year, 10_000_000_000);
   assert.ok(future.frames.some((frame) => frame.year === 2026 && frame.population > 0));
-  assert.ok(future.events.some((event) => event.year === 2026));
+  assert.ok(future.events.some((event) => event.title.endsWith(' discovered')));
 });

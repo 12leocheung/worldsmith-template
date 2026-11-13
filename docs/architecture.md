@@ -47,12 +47,17 @@ not silently change the energy budget, but temporal resolution is genuinely lowe
 
 After the tick loop, `buildFutureHistory` extends the chronicle from the last simulated
 year to 10 Gyr. This is a coarse future-history model, not a second individual-level
-ecology: it integrates population, settlements and technology level with a logistic
-carrying capacity, habitat loss and seeded shocks (plague, war, golden age, migration,
-machine disruption, climate). Near-future frames include 2026; later frames are
-log-spaced. The same seed always produces the same future; different seeds and starting
-states produce different histories. Future residents are representatives of that
-frame's population, not surviving individuals from the historical run.
+ecology: it integrates population, settlements, known technologies and research with a
+logistic carrying capacity, habitat loss and seeded shocks (plague, war, golden age,
+migration, machine disruption, climate). Each frame contributes research proportional
+to the living population and current era; a technology unlocks only when its research
+threshold is crossed and its prerequisites are known, and receives a discovery event at
+the estimated year. Dates are therefore consequences of the run, not calendar
+assignments: 2026 shows whatever that world has learned by 2026. Near-future frames are
+dense enough to see gradual change; later frames are log-spaced. The same seed always
+produces the same future; different seeds and starting states produce different
+histories. Future residents are representatives of that frame's population, not
+surviving individuals from the historical run.
 
 `buildDeepTimeProjection` supplies the physical stage: main-sequence luminosity grows as
 `L0 · (1 + 0.08 · massSolar · Gyr)`, surface temperature follows Stefan-Boltzmann scaling,

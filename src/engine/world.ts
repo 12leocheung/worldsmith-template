@@ -1077,7 +1077,7 @@ export class World implements SimulationContext {
       startYear: yearsTotal,
       initialPopulation: living.length,
       initialSettlements: lastSnapshot?.settlements ?? 0,
-      initialTechnologyCount: summary.technologies.length,
+      initialTechnologies: summary.technologies,
       species: species
         .filter((entry) => entry.finalPopulation > 0)
         .map((entry) => ({

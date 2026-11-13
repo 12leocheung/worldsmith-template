@@ -1,23 +1,28 @@
 /**
  * Coarse future-history model for the chronicle.
  *
- * The individual-level ecology is deliberately not run for gigayears: that would be
- * both computationally impossible and meaningless without a model of technological
- * civilisation. Instead this module integrates a small state machine from the final
- * simulated year to the stellar horizon:
+ * The individual-level ecology is deliberately not run for gigayears. Instead this
+ * module integrates a small state machine from the final simulated year to the stellar
+ * horizon:
  *
- *   population, settlements, technology level, and stochastic shocks
+ *   population, settlements, known technologies, research, and stochastic shocks
  *
- * The rules are intentionally simple and explicit. The same seed always produces the
- * same future; different seeds and different final states produce different histories.
- * Residents shown in a future frame are representatives of that frame's population,
- * not surviving individuals from the historical run.
+ * Technology is discovered, not assigned by date. Each frame contributes research
+ * proportional to the living population and the current era. When a technology's
+ * research threshold is crossed it is added to the known set and gets a discovery
+ * event at the estimated year. Different worlds therefore reach cars, computers, AI
+ * or orbital habitats at different dates — or never.
+ *
+ * The same seed always produces the same future. Residents shown in a future frame
+ * are representatives of that frame's population, not surviving individuals from the
+ * historical run.
  */
 
 import { clamp } from '../core/math.ts';
 import { Rng } from '../core/rng.ts';
 import { deepTimeStateAt, type DeepTimeOptions } from '../cosmos/deep-time.ts';
 import type { BiomeId } from '../geo/biomes.ts';
+import { TECH_BY_ID, TECHNOLOGIES } from './technology.ts';
 import { personName, settlementName } from './names.ts';
 
 export interface FutureRegion {
@@ -62,7 +67,7 @@ export interface FutureFrame {
   habitable: boolean;
   era: string;
   techLevel: number;
-  /** Concrete technologies visible in this era. */
+  /** Every technology this world has actually learned, in discovery order. */
   technologies: string[];
   population: number;
   settlements: number;
@@ -96,7 +101,8 @@ export interface FutureHistoryOptions {
   startYear: number;
   initialPopulation: number;
   initialSettlements: number;
-  initialTechnologyCount: number;
+  /** Technologies known at the end of the historical simulation. */
+  initialTechnologies: readonly string[];
   species: readonly FutureSpecies[];
   region: FutureRegion;
   /** Width of the full world map, used to turn region cells into global cells. */
@@ -120,17 +126,217 @@ const TECH_ERAS = [
   'Post-biological',
 ] as const;
 
-const TECH_NOTES = [
-  'Small bands follow game and seasonal plants.',
-  'Cultivation and storage support permanent villages.',
-  'Metallurgy, writing and organised states consolidate power.',
-  'Steam, electricity and factories reshape the surface.',
-  'Global networks and machine computation coordinate production.',
-  'Fusion and closed-loop habitats loosen the planet’s limits.',
-  'Orbital industry and off-world settlement begin.',
-  'The civilisation manipulates its star and solar system directly.',
-  'Biological minds are increasingly optional.',
-] as const;
+interface TechnologyStep {
+  name: string;
+  era: number;
+  cost: number;
+  requires: string[];
+  detail: string;
+}
+
+/** Era reached by each technology in the original tree. */
+const historicalEra = (id: string): number => {
+  if (['fire', 'stoneTools', 'language', 'cooking', 'clothing'].includes(id)) return 0;
+  if (['agriculture', 'animalHusbandry', 'pottery'].includes(id)) return 1;
+  if (['writing', 'metallurgy', 'mathematics', 'sanitation', 'medicine', 'printing'].includes(id)) return 2;
+  if (['steamPower', 'germTheory', 'electricity', 'scientificMethod'].includes(id)) return 3;
+  if (['computing', 'genetics'].includes(id)) return 4;
+  return 3;
+};
+
+/**
+ * The historical tree plus technologies that only appear after the simulated
+ * centuries. Costs are in research units; they are calibrated so a populous
+ * industrial world can reach the information age in roughly a millennium, while a
+ * small or unlucky world may never get there before its star changes.
+ */
+const HISTORICAL_TECHNOLOGIES: TechnologyStep[] = TECHNOLOGIES.map((tech, index) => ({
+  name: tech.name,
+  era: historicalEra(tech.id),
+  cost: 300 + index * 50,
+  requires: tech.requires.map((id) => TECH_BY_ID.get(id)?.name ?? id),
+  detail: tech.description,
+}));
+
+const FUTURE_TECHNOLOGIES: TechnologyStep[] = [
+  {
+    name: 'Cars',
+    era: 4,
+    cost: 900,
+    requires: ['Steam power', 'Metallurgy'],
+    detail: 'Private motor vehicles and paved roads shrink distance for ordinary people.',
+  },
+  {
+    name: 'Telephones',
+    era: 4,
+    cost: 950,
+    requires: ['Electricity'],
+    detail: 'Voice travels along wires in real time.',
+  },
+  {
+    name: 'Flight',
+    era: 4,
+    cost: 1_000,
+    requires: ['Cars'],
+    detail: 'Powered aircraft make intercontinental travel routine.',
+  },
+  {
+    name: 'Antibiotics',
+    era: 4,
+    cost: 1_050,
+    requires: ['Germ theory', 'Medicine'],
+    detail: 'Bacterial infections become treatable; childhood survival rises sharply.',
+  },
+  {
+    name: 'Radio',
+    era: 4,
+    cost: 1_100,
+    requires: ['Electricity', 'Telephones'],
+    detail: 'Broadcast signals carry news, music and propaganda without wires.',
+  },
+  {
+    name: 'Transistors',
+    era: 4,
+    cost: 1_150,
+    requires: ['Radio'],
+    detail: 'Miniature solid-state switches make cheap electronic computation possible.',
+  },
+  {
+    name: 'Computers',
+    era: 4,
+    cost: 1_200,
+    requires: ['Computing', 'Transistors'],
+    detail: 'General-purpose digital machines become tools of daily work.',
+  },
+  {
+    name: 'Internet',
+    era: 4,
+    cost: 1_400,
+    requires: ['Computers', 'Transistors'],
+    detail: 'A global packet network links computers, archives and people.',
+  },
+  {
+    name: 'Artificial intelligence',
+    era: 4,
+    cost: 1_600,
+    requires: ['Internet', 'Computers'],
+    detail: 'Machine learning systems become useful collaborators rather than calculators.',
+  },
+  {
+    name: 'Robotics',
+    era: 4,
+    cost: 1_800,
+    requires: ['Artificial intelligence'],
+    detail: 'Machines perform physical work with limited supervision.',
+  },
+  {
+    name: 'Fusion power',
+    era: 5,
+    cost: 2_000,
+    requires: ['Electricity', 'Computing'],
+    detail: 'Controlled fusion supplies dense, low-carbon energy.',
+  },
+  {
+    name: 'Gene editing',
+    era: 5,
+    cost: 2_200,
+    requires: ['Genetics', 'Computing'],
+    detail: 'Precise heritable changes become a routine medical technology.',
+  },
+  {
+    name: 'Reusable spaceflight',
+    era: 5,
+    cost: 2_400,
+    requires: ['Fusion power', 'Robotics'],
+    detail: 'Orbital launch becomes cheap enough for industry and settlement.',
+  },
+  {
+    name: 'Orbital habitats',
+    era: 6,
+    cost: 2_800,
+    requires: ['Reusable spaceflight'],
+    detail: 'Large closed habitats support permanent populations off the surface.',
+  },
+  {
+    name: 'Asteroid mining',
+    era: 6,
+    cost: 3_000,
+    requires: ['Reusable spaceflight'],
+    detail: 'Volatiles and metals from small bodies feed orbital industry.',
+  },
+  {
+    name: 'Closed-loop ecology',
+    era: 6,
+    cost: 3_200,
+    requires: ['Orbital habitats'],
+    detail: 'Artificial ecosystems recycle air, water and nutrients indefinitely.',
+  },
+  {
+    name: 'Stellar engineering',
+    era: 7,
+    cost: 3_800,
+    requires: ['Fusion power', 'Orbital habitats'],
+    detail: 'The civilisation begins to alter the output of its star.',
+  },
+  {
+    name: 'Star lifting',
+    era: 7,
+    cost: 4_200,
+    requires: ['Stellar engineering'],
+    detail: 'Material is extracted from the star itself.',
+  },
+  {
+    name: 'Interstellar probes',
+    era: 7,
+    cost: 4_600,
+    requires: ['Reusable spaceflight'],
+    detail: 'The first artificial objects reach another star system.',
+  },
+  {
+    name: 'Mind uploading',
+    era: 8,
+    cost: 5_200,
+    requires: ['Artificial intelligence', 'Computing'],
+    detail: 'Minds can be copied or run outside a biological body.',
+  },
+  {
+    name: 'Synthetic minds',
+    era: 8,
+    cost: 5_600,
+    requires: ['Mind uploading'],
+    detail: 'New minds are designed rather than born.',
+  },
+  {
+    name: 'Dyson swarms',
+    era: 8,
+    cost: 6_200,
+    requires: ['Stellar engineering', 'Asteroid mining'],
+    detail: 'A growing swarm of collectors captures a large share of the star’s light.',
+  },
+];
+
+const ALL_TECHNOLOGIES: TechnologyStep[] = [...HISTORICAL_TECHNOLOGIES, ...FUTURE_TECHNOLOGIES];
+
+const nextTechnology = (known: ReadonlySet<string>): TechnologyStep | undefined =>
+  ALL_TECHNOLOGIES.find(
+    (tech) => !known.has(tech.name) && tech.requires.every((requirement) => known.has(requirement)),
+  );
+
+const knownTechnologyNames = (known: ReadonlySet<string>): string[] =>
+  ALL_TECHNOLOGIES.filter((tech) => known.has(tech.name)).map((tech) => tech.name);
+
+const eraForKnown = (known: ReadonlySet<string>): number => {
+  let era = 0;
+  for (const tech of ALL_TECHNOLOGIES) {
+    if (known.has(tech.name)) era = Math.max(era, tech.era);
+  }
+  return era;
+};
+
+/** Research output per person-year at the start of the projection. */
+const RESEARCH_PER_PERSON_YEAR = 0.0018;
+
+const researchRate = (era: number): number => RESEARCH_PER_PERSON_YEAR * (1 + era * 0.1);
 
 interface Shock {
   title: string;
@@ -152,29 +358,6 @@ interface ActionChoice {
   label: string;
 }
 
-const ERA_TECHNOLOGIES = [
-  ['Fire', 'Stone tools', 'Language'],
-  ['Agriculture', 'Pottery', 'Weaving'],
-  ['Writing', 'Metallurgy', 'The wheel'],
-  ['Steam engines', 'Railways', 'Telegraph', 'Factories'],
-  ['Electricity', 'Cars', 'Computers', 'Internet', 'Antibiotics'],
-  ['Artificial intelligence (AI)', 'Robotics', 'Fusion power', 'Gene editing', 'Reusable spaceflight'],
-  ['Orbital habitats', 'Closed-loop ecology', 'Asteroid mining'],
-  ['Stellar engineering', 'Star lifting', 'Interstellar probes'],
-  ['Mind uploading', 'Synthetic minds', 'Dyson swarms'],
-] as const;
-
-/** The 2026 anchor is deliberately concrete, whatever the coarse era model says. */
-const PRESENT_TECHNOLOGIES = [
-  'Electricity',
-  'Cars',
-  'Computers',
-  'Internet',
-  'Smartphones',
-  'Artificial intelligence (AI)',
-  'Antibiotics',
-] as const;
-
 const SAPIENT_ACTIONS: readonly (readonly ActionChoice[])[] = [
   [{ id: 'forage', label: 'foraging' }, { id: 'teach', label: 'teaching' }, { id: 'socialize', label: 'gathering' }],
   [{ id: 'forage', label: 'farming' }, { id: 'teach', label: 'teaching' }, { id: 'socialize', label: 'trading' }],
@@ -194,9 +377,6 @@ const ANIMAL_ACTIONS: readonly ActionChoice[] = [
   { id: 'socialize', label: 'herding' },
 ];
 
-const techLevelFor = (technologyCount: number, sapient: boolean): number =>
-  sapient ? clamp(Math.floor(technologyCount / 4), 0, TECH_ERAS.length - 1) : 0;
-
 /** Fraction of the historical carrying capacity still available on the surface. */
 const habitatFactor = (temperatureC: number, epoch: string): number => {
   if (epoch === 'Red giant' || epoch === 'Stellar remnant' || epoch === 'Sterile') return 0;
@@ -214,10 +394,13 @@ const logistic = (population: number, capacity: number, rate: number, years: num
   return capacity / (1 + (ratio - 1) * Math.exp(-rate * years));
 };
 
-/** Frame years cover the near future densely enough to include 2026, then go logarithmic. */
+/** Frame years cover the near future densely enough to see gradual change. */
 const frameYears = (startYear: number, targetYears: number, events: readonly { year: number }[]): number[] => {
   const years = new Set<number>();
-  const near = [625, 700, 800, 900, 950, 1000, 1100, 1250, 1400, 1600, 1800, 2026, 2200, 2500, 2800, 3000];
+  const near = [
+    625, 700, 800, 900, 950, 1000, 1100, 1250, 1400, 1600, 1800,
+    1850, 1900, 1925, 1950, 1975, 2000, 2010, 2020, 2026, 2040, 2060, 2100, 2200, 2500, 2800, 3000,
+  ];
   const relative = [25, 50, 100, 200, 300, 500, 750, 1000].map((offset) => startYear + offset);
 
   for (const year of [...relative, ...near]) {
@@ -273,7 +456,7 @@ const buildResidents = (
       cellWeights.length > 0
         ? cellWeights[rng.weightedIndex(cellWeights.map((entry) => entry.weight))]
         : { cell: options.centerCell };
-    const known = species.sapient ? technologies.slice(0, 4) : [];
+    const known = species.sapient ? technologies.slice(-4) : [];
 
     residents.push({
       id,
@@ -287,7 +470,7 @@ const buildResidents = (
       ageYears: species.sapient ? rng.float(16, 74) : rng.float(1, 14),
       energy: rng.float(45, 100),
       health: rng.float(55, 100),
-      techs: species.sapient ? Math.min(99, options.initialTechnologyCount + techLevel * 3) : 0,
+      techs: species.sapient ? technologies.length : 0,
       known: [...known],
       offspring: rng.int(0, species.sapient ? 5 : 3),
       sapient: species.sapient,
@@ -300,8 +483,9 @@ const buildResidents = (
 
 /**
  * Integrate the post-simulation future. Population follows a logistic carrying
- * capacity set by technology and surface habitability, with seeded shocks. The model
- * is coarse by construction: one step per frame, not one tick per person.
+ * capacity set by era and surface habitability. Research is the cumulative product
+ * of living population and time; technologies unlock only when their own threshold
+ * is met and their prerequisites are known.
  */
 export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory => {
   const targetYears = options.deepTime.targetYears ?? 10_000_000_000;
@@ -311,39 +495,24 @@ export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory
   const years = frameYears(startYear, targetYears, options.deepTimeEvents);
   const events: FutureEvent[] = [];
   const frames: FutureFrame[] = [];
+  const known = new Set<string>(sapient ? options.initialTechnologies : []);
 
   let population = Math.max(0, options.initialPopulation);
-  let techLevel = techLevelFor(options.initialTechnologyCount, sapient);
+  let research = 0;
   let previousYear = startYear;
   const initialPopulation = Math.max(1, options.initialPopulation);
-  const dominant = options.species.slice().sort((a, b) => b.population - a.population)[0];
 
   years.forEach((year, frameIndex) => {
     const deltaYears = Math.max(1, year - previousYear);
     const state = deepTimeStateAt(options.deepTime, year);
     const wasPopulated = population > 0;
-    const presentDay = year === 2026 && sapient;
+    const populationBefore = population;
+    const eraBefore = eraForKnown(known);
 
-    if (population > 0 && sapient && techLevel < TECH_ERAS.length - 1) {
-      const progressChance = clamp(deltaYears / 500, 0, 0.6);
-      if (rng.chance(progressChance)) {
-        techLevel += 1;
-        events.push({
-          year,
-          title: `${TECH_ERAS[techLevel]} begins`,
-          detail: TECH_NOTES[techLevel] ?? '',
-        });
-      }
-    }
-
-    if (presentDay && techLevel < 4) techLevel = 4;
-    const technologies = !sapient
-      ? []
-      : presentDay
-        ? [...PRESENT_TECHNOLOGIES]
-        : [...(ERA_TECHNOLOGIES[Math.min(techLevel, ERA_TECHNOLOGIES.length - 1)] ?? ERA_TECHNOLOGIES[0])];
-
-    const carrier = Math.max(0, initialPopulation * (1.1 + 0.55 * techLevel) * habitatFactor(state.temperatureC, state.epoch));
+    const carrier = Math.max(
+      0,
+      initialPopulation * (1.1 + 0.55 * eraBefore) * habitatFactor(state.temperatureC, state.epoch),
+    );
     let nextPopulation = carrier > 0 && population > 0 ? logistic(population, carrier, 0.0009, deltaYears) : 0;
 
     if (nextPopulation > 0) {
@@ -370,6 +539,38 @@ export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory
     }
 
     population = Math.max(0, Math.round(nextPopulation));
+
+    const researchGain =
+      sapient && population > 0 && populationBefore > 0
+        ? ((populationBefore + population) / 2) * deltaYears * researchRate(eraBefore)
+        : 0;
+    const researchAtStart = research;
+    let cumulativeCost = 0;
+    for (;;) {
+      const next = nextTechnology(known);
+      if (!next) {
+        research = 0;
+        break;
+      }
+      if (researchAtStart + researchGain < cumulativeCost + next.cost) break;
+      cumulativeCost += next.cost;
+      const fraction = researchGain > 0 ? clamp((cumulativeCost - researchAtStart) / researchGain, 0, 1) : 1;
+      const discoveryYear = Math.round(previousYear + deltaYears * fraction);
+      known.add(next.name);
+      events.push({
+        year: discoveryYear,
+        title: `${next.name} discovered`,
+        detail: next.detail,
+      });
+    }
+    if (cumulativeCost === 0 && researchAtStart + researchGain > 0) {
+      research += researchGain;
+    } else {
+      research = Math.max(0, researchAtStart + researchGain - cumulativeCost);
+    }
+
+    const techLevel = eraForKnown(known);
+    const technologies = sapient ? knownTechnologyNames(known) : [];
     const settlements = population > 0
       ? Math.max(1, Math.round(options.initialSettlements * (population / initialPopulation) ** 0.55))
       : 0;
@@ -379,13 +580,10 @@ export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory
       population: options.region.population.map((count) => Math.max(0, Math.round(count * scale))),
     };
     const era = population > 0
-      ? (sapient ? (presentDay ? TECH_ERAS[4] : TECH_ERAS[techLevel] ?? TECH_ERAS[0]) : 'Wild biosphere')
+      ? (sapient ? TECH_ERAS[techLevel] ?? TECH_ERAS[0] : 'Wild biosphere')
       : 'Silent world';
-    const presentDetail = presentDay
-      ? 'Cars, computers, the internet and artificial intelligence are part of daily life. '
-      : '';
     const description = population > 0
-      ? `${era}: ${population.toLocaleString('en-US')} people across ${settlements.toLocaleString('en-US')} settlements. ${presentDetail}${state.description}`
+      ? `${era}: ${population.toLocaleString('en-US')} people across ${settlements.toLocaleString('en-US')} settlements, with ${technologies.length} technologies known. ${state.description}`
       : `${state.description} No settlements remain.`;
 
     frames.push({
@@ -409,15 +607,6 @@ export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory
     });
     previousYear = year;
   });
-
-  const present = frames.find((frame) => frame.year === 2026);
-  if (present && present.population > 0) {
-    events.push({
-      year: 2026,
-      title: 'The present day',
-      detail: `${dominant?.name ?? 'The dominant lineage'} descendants are still alive; cars, computers, the internet and artificial intelligence are part of daily life. The projection continues past the simulated centuries.`,
-    });
-  }
 
   const seen = new Set<string>();
   const uniqueEvents = events
