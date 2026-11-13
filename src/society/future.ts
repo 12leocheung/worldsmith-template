@@ -334,7 +334,7 @@ const eraForKnown = (known: ReadonlySet<string>): number => {
 };
 
 /** Research output per person-year at the start of the projection. */
-const RESEARCH_PER_PERSON_YEAR = 0.0018;
+const RESEARCH_PER_PERSON_YEAR = 0.0014;
 
 const researchRate = (era: number): number => RESEARCH_PER_PERSON_YEAR * (1 + era * 0.1);
 
