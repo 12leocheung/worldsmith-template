@@ -1,4 +1,4 @@
-import { clamp } from '../core/math.ts';
+import { clamp, pow } from '../core/math.ts';
 import { Rng } from '../core/rng.ts';
 import { fbm3D, ridged3D } from './noise.ts';
 
@@ -121,7 +121,7 @@ export const generateTerrain = (rng: Rng, options: TerrainOptions): Terrain => {
     } else {
       const normalised = clamp(value / landMax, 0, 1);
       // Hypsometric curve: most land is low, mountain chains rise steeply.
-      elevationM[k] = normalised ** 1.6 * 7200 + (mountainMask[k] as number) ** 3 * 1800 * roughness;
+      elevationM[k] = pow(normalised, 1.6) * 7200 + pow(mountainMask[k] as number, 3) * 1800 * roughness;
     }
   }
 

@@ -1,4 +1,4 @@
-import { clamp } from '../core/math.ts';
+import { clamp, pow } from '../core/math.ts';
 import {
   digestionEfficiency,
   dailyEnergyDemandKcal,
@@ -355,7 +355,7 @@ const doInnovate = (world: SimulationContext, individual: Individual): ActionRes
   if (available.length === 0) return { reward: -0.2, note: 'nothing left to discover' };
   const effects = world.techEffectsFor(individual.speciesId);
   const perYear = innovationChancePerYear(individual.brain, individual.genome) * (1 + effects.innovation);
-  const chance = 1 - (1 - perYear) ** world.yearsPerTick;
+  const chance = 1 - pow(1 - perYear, world.yearsPerTick);
   if (!world.rng.chance(chance)) {
     return { reward: -0.05 };
   }

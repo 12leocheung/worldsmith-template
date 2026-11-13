@@ -11,6 +11,8 @@
  * `src/society/future.ts`; this module is only the physical stage.
  */
 
+import { pow } from '../core/math.ts';
+
 export interface DeepTimeState {
   luminositySolar: number;
   temperatureC: number;
@@ -69,7 +71,7 @@ export const deepTimeStateAt = (options: DeepTimeOptions, year: number): DeepTim
       ? Math.max(800, options.luminositySolar * 900)
       : Math.max(1e-6, options.luminositySolar * (1 + 0.08 * options.massSolar * (year / 1_000_000_000)));
   const ratio = luminositySolar / Math.max(1e-9, options.luminositySolar);
-  const temperatureC = baseKelvin * ratio ** 0.25 - KELVIN_OFFSET;
+  const temperatureC = baseKelvin * pow(ratio, 0.25) - KELVIN_OFFSET;
   const habitable = year < lifetimeYears && temperatureC > -20 && temperatureC < 47;
 
   let epoch: string;
@@ -126,7 +128,7 @@ export const buildDeepTimeProjection = (options: DeepTimeOptions): DeepTimeProje
   const frames: DeepTimeFrame[] = [];
   for (let index = 1; index <= frameCount; index++) {
     const fraction = index / frameCount;
-    const year = Math.round(startYear * (targetYears / startYear) ** fraction);
+    const year = Math.round(startYear * pow(targetYears / startYear, fraction));
     frames.push({ year, ...deepTimeStateAt(options, year) });
   }
 
@@ -161,7 +163,7 @@ export const buildDeepTimeProjection = (options: DeepTimeOptions): DeepTimeProje
       title: 'Star leaves the main sequence',
       detail: `Core hydrogen is exhausted after ${options.lifetimeGyr.toFixed(1)} Gyr on the main sequence.`,
     });
-    const giantRadiusAu = 1.1 * options.massSolar ** 1.1;
+    const giantRadiusAu = 1.1 * pow(options.massSolar, 1.1);
     events.push({
       year: lifetimeYears,
       title: orbitAu <= giantRadiusAu ? 'Planet engulfed' : 'Planet scorched',

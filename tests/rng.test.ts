@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Rng } from '../src/core/rng.ts';
-import { clamp, mean, stdev } from '../src/core/math.ts';
+import { clamp, mean, pow, stdev } from '../src/core/math.ts';
 
 test('identical seeds produce identical streams', () => {
   const a = new Rng(1234);
@@ -74,4 +74,9 @@ test('math helpers behave at the edges', () => {
   assert.equal(clamp(-1, 0, 1), 0);
   assert.ok(Number.isNaN(mean([])) === false);
   assert.equal(mean([]), 0);
+  assert.equal(pow(2, 0), 1);
+  assert.equal(pow(2, 3), 8);
+  assert.equal(pow(-2, 3), -8);
+  assert.ok(Math.abs(pow(9, 0.5) - 3) < 1e-12);
+  assert.equal(pow(0, 3), 0);
 });

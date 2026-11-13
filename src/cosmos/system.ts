@@ -1,5 +1,5 @@
 import { Rng } from '../core/rng.ts';
-import { clamp } from '../core/math.ts';
+import { clamp, pow } from '../core/math.ts';
 import { makeOrbit, type OrbitalElements } from './orbit.ts';
 import {
   equilibriumTemperatureK,
@@ -45,11 +45,11 @@ const randomMoon = (rng: Rng, planetRadiusKm: number, index: number): Moon => {
   const distanceKm = planetRadiusKm * rng.float(3, 20) + radiusKm;
   return {
     name: `Moon-${index + 1}`,
-    massEarth: (radiusKm / 6371) ** 3 * 0.4,
+    massEarth: pow(radiusKm / 6371, 3) * 0.4,
     radiusKm,
     distanceKm,
     // Kepler's third law around the planet, in Earth masses (approximation).
-    orbitalPeriodDays: 0.4 * Math.sqrt(distanceKm ** 3 / Math.max(radiusKm, 1)),
+    orbitalPeriodDays: 0.4 * Math.sqrt(pow(distanceKm, 3) / Math.max(radiusKm, 1)),
   };
 };
 
@@ -165,7 +165,7 @@ export const tuneGreenhouseForTemperature = (
   const equilibrium = equilibriumTemperatureK(planet, star, distanceAu);
   if (equilibrium <= 0) return;
   const targetK = targetMeanTempC + 273.15;
-  const greenhouse = (targetK / equilibrium) ** 4 - 1;
+  const greenhouse = pow(targetK / equilibrium, 4) - 1;
   planet.greenhouse = clamp(greenhouse + rng.float(-0.02, 0.02), 0, 30);
 };
 

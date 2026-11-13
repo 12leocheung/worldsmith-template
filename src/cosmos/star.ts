@@ -1,3 +1,4 @@
+import { pow } from '../core/math.ts';
 import { Rng } from '../core/rng.ts';
 
 /** Harvard spectral classes, coarse but enough to drive luminosity/colour/lifetime. */
@@ -54,7 +55,7 @@ export const makeStar = (options: StarOptions = {}): Star => {
   const massSolar = options.massSolar ?? preset.massSolar;
   // Mass-luminosity relation is a decent fallback when only mass is specified.
   const luminositySolar =
-    options.luminositySolar ?? (options.massSolar === undefined ? preset.luminositySolar : massSolar ** 3.5);
+    options.luminositySolar ?? (options.massSolar === undefined ? preset.luminositySolar : pow(massSolar, 3.5));
   return {
     name: options.name ?? `Star-${spectralClass}`,
     spectralClass,

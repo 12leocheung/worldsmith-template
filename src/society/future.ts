@@ -18,7 +18,7 @@
  * historical run.
  */
 
-import { clamp } from '../core/math.ts';
+import { clamp, pow } from '../core/math.ts';
 import { Rng } from '../core/rng.ts';
 import { deepTimeStateAt, type DeepTimeOptions } from '../cosmos/deep-time.ts';
 import type { BiomeId } from '../geo/biomes.ts';
@@ -146,9 +146,10 @@ const historicalEra = (id: string): number => {
 
 /**
  * The historical tree plus technologies that only appear after the simulated
- * centuries. Costs are in research units; they are calibrated so a populous
- * industrial world can reach the information age in roughly a millennium, while a
- * small or unlucky world may never get there before its star changes.
+ * centuries. Costs are in research units. They are calibrated so a populous
+ * world reaches computers around its industrial century, the internet decades
+ * later, and AI later still; a small or unlucky world may never get there before
+ * its star changes.
  */
 const HISTORICAL_TECHNOLOGIES: TechnologyStep[] = TECHNOLOGIES.map((tech, index) => ({
   name: tech.name,
@@ -333,8 +334,12 @@ const eraForKnown = (known: ReadonlySet<string>): number => {
   return era;
 };
 
-/** Research output per person-year at the start of the projection. */
-const RESEARCH_PER_PERSON_YEAR = 0.0014;
+/**
+ * Research output per person-year at the start of the projection. Kept low enough
+ * that the information age is a sequence of discoveries over centuries rather than
+ * a single leap; faster, larger lineages still separate from slower ones.
+ */
+const RESEARCH_PER_PERSON_YEAR = 0.00172;
 
 const researchRate = (era: number): number => RESEARCH_PER_PERSON_YEAR * (1 + era * 0.1);
 
@@ -414,7 +419,7 @@ const frameYears = (startYear: number, targetYears: number, events: readonly { y
   const logStart = 3000;
   if (targetYears > logStart) {
     for (let index = 1; index <= 28; index++) {
-      years.add(Math.round(logStart * (targetYears / logStart) ** (index / 28)));
+      years.add(Math.round(logStart * pow(targetYears / logStart, index / 28)));
     }
   }
   return [...years].sort((a, b) => a - b);
@@ -572,7 +577,7 @@ export const buildFutureHistory = (options: FutureHistoryOptions): FutureHistory
     const techLevel = eraForKnown(known);
     const technologies = sapient ? knownTechnologyNames(known) : [];
     const settlements = population > 0
-      ? Math.max(1, Math.round(options.initialSettlements * (population / initialPopulation) ** 0.55))
+      ? Math.max(1, Math.round(options.initialSettlements * pow(population / initialPopulation, 0.55)))
       : 0;
     const scale = options.initialPopulation > 0 ? population / options.initialPopulation : 0;
     const region: FutureRegion = {

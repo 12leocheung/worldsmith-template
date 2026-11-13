@@ -1,3 +1,4 @@
+import { pow } from '../core/math.ts';
 import { EARTH_MASS_KG, EARTH_RADIUS_KM, GRAVITATIONAL_CONSTANT, kelvinToCelsius, orbitalPeriodYears } from '../core/units.ts';
 import type { SpectralClass, Star } from './star.ts';
 
@@ -158,7 +159,7 @@ export const equilibriumTemperatureK = (
   distanceAu: number,
 ): number => {
   const albedo = Math.min(0.95, Math.max(0, planet.albedo));
-  return 255 * ((1 - albedo) / 0.7) ** 0.25 * star.luminositySolar ** 0.25 / Math.sqrt(distanceAu);
+  return 255 * pow((1 - albedo) / 0.7, 0.25) * pow(star.luminositySolar, 0.25) / Math.sqrt(distanceAu);
 };
 
 /** Mean surface temperature in °C including a simple greenhouse scaling. */
@@ -168,7 +169,7 @@ export const surfaceTemperatureC = (
   distanceAu: number,
 ): number => {
   const equilibrium = equilibriumTemperatureK(planet, star, distanceAu);
-  const surface = equilibrium * (1 + Math.max(0, planet.greenhouse)) ** 0.25;
+  const surface = equilibrium * pow(1 + Math.max(0, planet.greenhouse), 0.25);
   return kelvinToCelsius(surface);
 };
 

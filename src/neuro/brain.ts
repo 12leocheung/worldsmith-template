@@ -1,4 +1,4 @@
-import { clamp, sigmoid } from '../core/math.ts';
+import { clamp, pow, sigmoid } from '../core/math.ts';
 import { Rng } from '../core/rng.ts';
 import type { Genome } from '../bio/genome.ts';
 import { ACTION_IDS, type ActionId } from './actions.ts';
@@ -134,7 +134,7 @@ const ZERO_PREFERENCE = (): Record<ActionId, number> => {
 export const createBrain = (spec: BrainSpec | undefined, genome: Genome, rng: Rng): Brain => {
   const resolvedSpec = spec ?? {};
   const globalEfficiency = resolvedSpec.efficiency ?? 1;
-  const massFactor = clamp((genome.brainMassKg / 1.35) ** 0.45, 0.35, 3);
+  const massFactor = clamp(pow(genome.brainMassKg / 1.35, 0.45), 0.35, 3);
   const regions: RegionStates = {};
 
   for (const [id, definition] of BRAIN_REGIONS.entries()) {
@@ -213,7 +213,7 @@ export const teachingFidelity = (teacher: Brain, teacherGenome: Genome, socialit
 
 /** Probability per year that an individual discovers an available technology. */
 export const innovationChancePerYear = (brain: Brain, genome: Genome): number =>
-  clamp(0.02 * cognitionScore(brain) ** 1.8 * (0.25 + genome.curiosity), 0, 0.6);
+  clamp(0.02 * pow(cognitionScore(brain), 1.8) * (0.25 + genome.curiosity), 0, 0.6);
 
 /** Compute region activations for a percept. Stored on the brain for inspection. */
 export const updateRegionActivity = (brain: Brain, perception: Perception): void => {

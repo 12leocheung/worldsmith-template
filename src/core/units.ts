@@ -6,6 +6,8 @@
  * reality and so that cross-scale reasoning stays honest.
  */
 
+import { pow } from './math.ts';
+
 export const AU_KM = 149_597_870.7;
 export const SOLAR_MASS_KG = 1.98847e30;
 export const SOLAR_LUMINOSITY_W = 3.828e26;
@@ -39,4 +41,4 @@ export const celsiusToKelvin = (c: number): number => c + KELVIN_OFFSET;
 
 /** Kepler's third law in solar units: P[years] = sqrt(a[AU]^3 / M[solar]). */
 export const orbitalPeriodYears = (semiMajorAxisAu: number, starMassSolar: number): number =>
-  Math.sqrt((semiMajorAxisAu ** 3) / Math.max(starMassSolar, 1e-6));
+  Math.sqrt(pow(semiMajorAxisAu, 3) / Math.max(starMassSolar, 1e-6));

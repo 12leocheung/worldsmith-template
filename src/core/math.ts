@@ -19,6 +19,26 @@ export const rad2deg = (rad: number): number => (rad * 180) / Math.PI;
 
 export const sigmoid = (x: number): number => 1 / (1 + Math.exp(-x));
 
+/**
+ * Platform-stable exponentiation.
+ *
+ * V8 changed the last bits of `Math.pow` for fractional exponents between Node 22
+ * and Node 26. That is invisible for a single calculation but enough to send a
+ * seeded ecology down a different path. Integer powers use repeated multiplication;
+ * fractional powers use `exp(y * log(x))`, whose results agree across those versions.
+ */
+export const pow = (base: number, exponent: number): number => {
+  if (exponent === 0) return 1;
+  if (exponent === 1) return base;
+  if (Number.isInteger(exponent) && exponent > 1 && exponent <= 8) {
+    let result = 1;
+    for (let index = 0; index < exponent; index++) result *= base;
+    return result;
+  }
+  if (base === 0) return exponent > 0 ? 0 : Infinity;
+  return Math.exp(exponent * Math.log(base));
+};
+
 export const sum = (xs: readonly number[]): number => {
   let total = 0;
   for (const x of xs) total += x;

@@ -1,5 +1,5 @@
 import { Rng } from '../core/rng.ts';
-import { clamp, mean } from '../core/math.ts';
+import { clamp, mean, pow } from '../core/math.ts';
 import { digest } from '../core/registry.ts';
 import { surfaceTemperatureC } from '../cosmos/planet.ts';
 import { buildDeepTimeProjection, type DeepTimeOptions } from '../cosmos/deep-time.ts';
@@ -445,7 +445,7 @@ export class World implements SimulationContext {
         ['injury', individual.health <= 0 ? 12 : 0],
       ];
       const hazardPerYear = hazards.reduce((total, [, value]) => total + value, 0);
-      const chance = 1 - (1 - clamp(hazardPerYear, 0, 0.999)) ** this.yearsPerTick;
+      const chance = 1 - pow(1 - clamp(hazardPerYear, 0, 0.999), this.yearsPerTick);
       if (this.tickRng.chance(chance)) {
         const roll = this.tickRng.next() * hazardPerYear;
         let cause = 'unknown';
@@ -1128,7 +1128,7 @@ export class World implements SimulationContext {
         radiusKm: this.planet.radiusKm,
         massEarth: this.planet.massEarth,
         gravity: surfaceGravity(this.planet),
-        yearDays: Math.sqrt(planetDistance ** 3 / this.star.massSolar) * 365.25,
+        yearDays: Math.sqrt(pow(planetDistance, 3) / this.star.massSolar) * 365.25,
         dayHours: this.planet.rotationHours,
         axialTiltDeg: this.planet.axialTiltDeg,
         oceanFraction: this.planet.oceanFraction,

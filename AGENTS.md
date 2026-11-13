@@ -41,8 +41,10 @@ stripping).
 ## Hard invariants
 
 - **Determinism.** No `Math.random`. Use `world.rng` (the tick stream) or
-  `rng.fork(label)` for independent streams. Same seed, scenario and code must produce
-  the same digest; `tests/engine.test.ts` enforces this.
+  `rng.fork(label)` for independent streams. Use `pow` from `src/core/math.ts` for
+  fractional powers: native `Math.pow` differs in its last bits between Node 22 and
+  26, which changes seeded worlds. Same seed, scenario and code must produce the same
+  digest; `tests/engine.test.ts` enforces this.
 - **Tick scaling.** Anything expressed per year is multiplied by `yearsPerTick` when
   applied. Energy uses `tickEnergyDemandKcal` / `energyCapacityKcal`; do not reintroduce
   a fixed 60-day energy cap.

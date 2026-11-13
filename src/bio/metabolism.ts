@@ -1,4 +1,4 @@
-import { clamp } from '../core/math.ts';
+import { clamp, pow } from '../core/math.ts';
 import { KCAL_PER_KG_MEAT, KCAL_PER_KG_PLANT } from '../core/units.ts';
 import type { Genome } from './genome.ts';
 
@@ -17,7 +17,7 @@ export const KLEIBER_EXPONENT = 0.75;
 /** kcal per day at rest; efficiency reduces the cost of maintenance. */
 export const basalMetabolicKcalPerDay = (genome: Pick<Genome, 'bodyMassKg' | 'metabolicEfficiency'>): number => {
   const efficiencyMultiplier = 1.25 - 0.5 * clamp(genome.metabolicEfficiency, 0, 1);
-  return KLEIBER_COEFFICIENT * genome.bodyMassKg ** KLEIBER_EXPONENT * efficiencyMultiplier;
+  return KLEIBER_COEFFICIENT * pow(genome.bodyMassKg, KLEIBER_EXPONENT) * efficiencyMultiplier;
 };
 
 /** Annual energy requirement at rest, kcal. */

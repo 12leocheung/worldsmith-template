@@ -76,6 +76,10 @@ what makes `compare` meaningful.
 ## Determinism
 
 - All randomness comes from `Rng`, a mulberry32 stream seeded by splitmix32.
+- Fractional powers use `pow` from `core/math.ts`, not `**` or `Math.pow`. V8 changed
+  the last bits of native `Math.pow` between Node 22 and 26; because terrain and
+  metabolism amplify tiny differences, that was enough to change a seeded world's
+  technology dates on GitHub Pages versus a local machine.
 - `rng.fork(label)` derives a new stream from the *original seed*, not from current
   state. Consuming numbers in one stream cannot shift another.
 - Scenarios, species, interventions and initial conditions are data.
