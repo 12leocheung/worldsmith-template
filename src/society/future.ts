@@ -775,13 +775,16 @@ const buildResidents = (
     cellWeights.push({ cell: (region.originY + y) * options.mapWidth + (region.originX + x), weight });
   }
 
-  const speciesWeights = options.species.map((species) => Math.max(1, species.population));
+  const residentSpecies = options.species.some((species) => species.sapient)
+    ? options.species.filter((species) => species.sapient)
+    : options.species;
+  const speciesWeights = residentSpecies.map((species) => Math.max(1, species.population));
   const count = Math.max(1, Math.min(30, Math.round(30 * Math.sqrt(population / Math.max(1, options.initialPopulation)))));
   const orbitalShare = orbitalPopulation / Math.max(1, surfacePopulation + orbitalPopulation);
   const residents: FutureResident[] = [];
 
   for (let index = 0; index < count; index++) {
-    const species = options.species[rng.weightedIndex(speciesWeights)] ?? options.species[0];
+    const species = residentSpecies[rng.weightedIndex(speciesWeights)] ?? residentSpecies[0];
     if (!species) break;
     const id = 1_000_000 + frameIndex * 100 + index;
     const actionPool = species.sapient
@@ -809,7 +812,7 @@ const buildResidents = (
       techs: species.sapient ? technologies.length : 0,
       known: [...known],
       offspring: rng.int(0, species.sapient ? 5 : 3),
-      offWorld: surfacePopulation <= 0 || rng.chance(orbitalShare),
+      offWorld: species.sapient && (surfacePopulation <= 0 || rng.chance(orbitalShare)),
       x: ((Math.imul(id, 2654435761) >>> 0) % 1000) / 1000,
       y: ((Math.imul(id, 40503) >>> 0) % 1000) / 1000,
     });
