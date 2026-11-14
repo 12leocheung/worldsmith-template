@@ -4,6 +4,7 @@ import earthlike from '../scenarios/earthlike.ts';
 import {
   branchChoice,
   buildFutureHistory,
+  buildSettlementNetwork,
   eligibleCrises,
   type CrisisContext,
   type FutureHistoryOptions,
@@ -28,6 +29,7 @@ const crisisBaseState: FutureState = {
   trade: 0.5,
   inequality: 0.3,
   pathBias: 0.5,
+  uploadedShare: 0,
 };
 
 const stateWith = (overrides: Partial<FutureState>): FutureState => ({
@@ -170,7 +172,72 @@ test('society tracks demographic change, adoption, resources and off-world settl
   assert.ok(withOrbitals.technologies.includes('Orbital habitats'));
   assert.ok(withOrbitals.orbitalPopulation <= withOrbitals.population);
   assert.ok(withOrbitals.orbitalSettlements > 0);
+  assert.ok(withOrbitals.orbitalCapacity >= withOrbitals.orbitalPopulation);
+  assert.ok(withOrbitals.network.nodes > 0);
+  const orbitalOnly = history.frames.find((frame) => frame.surfacePopulation === 0 && frame.orbitalPopulation > 0);
+  if (orbitalOnly) assert.ok(orbitalOnly.network.orbital);
   assert.ok(history.frames.some((frame) => frame.residents.some((resident) => resident.offWorld)));
+});
+
+test('settlement networks derive from occupied cells', () => {
+  const network = buildSettlementNetwork({
+    width: 3,
+    height: 2,
+    originX: 0,
+    originY: 0,
+    centerX: 1,
+    centerY: 1,
+    biome: ['grassland', 'grassland', 'grassland', 'grassland', 'grassland', 'grassland'],
+    population: [10, 0, 20, 0, 30, 0],
+  });
+  const empty = buildSettlementNetwork({
+    width: 1,
+    height: 1,
+    originX: 0,
+    originY: 0,
+    centerX: 0,
+    centerY: 0,
+    biome: ['ocean'],
+    population: [0],
+  });
+
+  assert.equal(network.nodes, 3);
+  assert.ok(network.routes >= 2);
+  assert.equal(network.connectedShare, 1);
+  assert.equal(empty.nodes, 0);
+  assert.equal(empty.routes, 0);
+  assert.equal(empty.connectedShare, 0);
+});
+
+test('future invariants hold across seeds', () => {
+  const chosenBranches = new Set<string>();
+
+  for (const seed of [1, 7, 13, 42, 99]) {
+    const history = buildFutureHistory({ ...baseOptions, seed });
+    const ai = history.events.find((event) => event.title === 'Artificial intelligence discovered');
+    const energy = ['Renewable energy', 'Fossil fuel renaissance'];
+    const governance = ['Open information order', 'Centralized automation'];
+
+    for (const event of history.events) {
+      if (event.title.startsWith('Machine disruption')) {
+        assert.ok(ai, `seed ${seed}: machine disruption requires AI`);
+        assert.ok(event.year >= ai.year, `seed ${seed}: machine disruption predates AI`);
+      }
+      if (event.kind === 'crisis' || event.kind === 'branch') {
+        assert.ok(event.cause, `seed ${seed}: ${event.title} has a cause`);
+      }
+    }
+
+    for (const frame of history.frames) {
+      assert.equal(frame.surfacePopulation + frame.orbitalPopulation, frame.population);
+      if (frame.surfacePopulation === 0) assert.equal(frame.settlements, 0);
+      assert.ok(frame.branches.filter((name) => energy.includes(name)).length <= 1);
+      assert.ok(frame.branches.filter((name) => governance.includes(name)).length <= 1);
+      frame.branches.forEach((name) => chosenBranches.add(name));
+    }
+  }
+
+  assert.ok(chosenBranches.size >= 2, `seeds should reach different branches, got ${[...chosenBranches].join(', ')}`);
 });
 
 test('crisis conditions follow food, crowding and public health', () => {

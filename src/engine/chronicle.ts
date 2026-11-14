@@ -224,7 +224,18 @@ export const renderChronicle = (result: RunResult): string => {
   .entry:hover { border-color:var(--line); }
   .entry .year { color:var(--gold); font-variant-numeric:tabular-nums; }
   .entry .detail { border:0; padding:0; margin:2px 0 0; min-height:0; background:transparent; font-size:11px; color:var(--muted); }
+  .entry .cause { display:block; color:var(--blue); font-size:10px; margin-top:3px; }
+  .societyline span { border-bottom:1px dotted #3b5362; cursor:help; }
   .empty { color:var(--muted); font-size:12px; padding:10px 2px; }
+  @media (max-width:700px) {
+    .wrap { padding:0 10px 32px; }
+    .panel { padding:9px; }
+    .stat { flex:1 1 calc(50% - 8px); }
+    .techline, .societyline { font-size:10px; padding:6px 7px; }
+    .detail p { font-size:11px; }
+    .entry { grid-template-columns:44px 1fr; }
+    .time-head b { font-size:16px; }
+  }
   .foot { margin-top:18px; color:var(--muted); font-size:11px; border-top:2px solid var(--line); padding-top:12px; }
   .kbd { color:var(--accent); }
 </style>
@@ -259,7 +270,7 @@ export const renderChronicle = (result: RunResult): string => {
           <span class="legend"><i style="background:var(--accent)"></i>technology <i style="background:var(--violet)"></i>theory <i style="background:var(--red)"></i>war <i style="background:var(--pink)"></i>plague / accident <i style="background:#ff9f43"></i>future history</span>
         </div>
         <div class="markers" id="markers"></div>
-        <input type="range" id="time" min="0" max="${chronicle.snapshots.length + (chronicle.future?.frames.length || chronicle.deepTime?.frames.length || 0) - 1}" value="0" step="1" />
+        <input type="range" id="time" aria-label="Chronicle timeline" title="Use arrow keys to move through time" min="0" max="${chronicle.snapshots.length + (chronicle.future?.frames.length || chronicle.deepTime?.frames.length || 0) - 1}" value="0" step="1" />
         <div class="legend">drag to move through time · click a marker to jump to an event</div>
       </div>
     </div>
@@ -511,6 +522,9 @@ export const renderChronicle = (result: RunResult): string => {
     }
     return best;
   }
+  function metric(label, value, hint) {
+    return '<span title="' + hint + '">' + label + ' ' + value + '</span>';
+  }
   function renderStats() {
     var s = currentSnap();
     document.getElementById('stat-pop').textContent = s.kind === 'deep' ? '0' : s.population.toLocaleString();
@@ -534,16 +548,17 @@ export const renderChronicle = (result: RunResult): string => {
     var societyline = document.getElementById('societyline');
     if (s.kind === 'future' && s.literacy !== undefined && s.era !== 'Wild biosphere') {
       var parts = [
-        'literacy ' + Math.round(s.literacy * 100) + '%',
-        'institutions ' + Math.round(s.institutions * 100) + '%'
+        metric('literacy', Math.round(s.literacy * 100) + '%', 'Share of adults who can read and use written knowledge.'),
+        metric('institutions', Math.round(s.institutions * 100) + '%', 'State capacity: taxation, law, public health and education.')
       ];
-      if (s.surfacePopulation > 0) parts.push('urban ' + Math.round(s.urbanization * 100) + '%');
-      parts.push('trade connectivity ' + Math.round(s.tradeConnectivity * 100) + '%');
-      parts.push('energy ' + s.energyPerCapita.toFixed(1) + ' MWh/person-year');
-      parts.push('biosphere health ' + Math.round(s.biosphereHealth * 100) + '%');
-      parts.push('pollution ' + Math.round(s.pollution * 100) + '%');
-      parts.push('resource stock ' + Math.round(s.resourceStock * 100) + '%');
-      if (s.orbitalPopulation > 0) parts.push('orbital ' + s.orbitalPopulation.toLocaleString() + ' people');
+      if (s.surfacePopulation > 0) parts.push(metric('urban', Math.round(s.urbanization * 100) + '%', 'Share of the surface population living in cities.'));
+      parts.push(metric('trade connectivity', Math.round(s.tradeConnectivity * 100) + '%', 'Connectivity of the settlement trade network.'));
+      parts.push(metric('energy', s.energyPerCapita.toFixed(1) + ' MWh/person-year', 'Commercial energy use per person per year.'));
+      parts.push(metric('biosphere health', Math.round(s.biosphereHealth * 100) + '%', 'Ecological condition of the surface biosphere.'));
+      parts.push(metric('pollution', Math.round(s.pollution * 100) + '%', 'Industrial and ecological pollution pressure.'));
+      parts.push(metric('resource stock', Math.round(s.resourceStock * 100) + '%', 'Remaining accessible material and fuel stocks.'));
+      if ((s.uploadedShare || 0) > 0) parts.push(metric('substrate', Math.round(s.uploadedShare * 100) + '% uploaded', 'Share of minds running outside biological bodies.'));
+      if (s.orbitalPopulation > 0) parts.push(metric('orbital', s.orbitalPopulation.toLocaleString() + ' people', 'People living in orbital habitats.'));
       societyline.hidden = false;
       societyline.innerHTML = '<b>society:</b> ' + parts.join(' · ');
     } else {
@@ -598,9 +613,21 @@ export const renderChronicle = (result: RunResult): string => {
           (s.surfacePopulation > 0 ? ' · ' + s.urbanPopulation.toLocaleString() + ' urban · ' + s.ruralPopulation.toLocaleString() + ' rural' : '') + '</p>';
         var settlementLine = '<p><b>Settlements:</b> ' + s.settlements.toLocaleString() + ' surface' +
           ((s.orbitalSettlements || 0) > 0 ? ' · ' + s.orbitalSettlements.toLocaleString() + ' orbital' : '') + '</p>';
+        var networkLine = s.network
+          ? '<p><b>Trade network:</b> ' + s.network.nodes.toLocaleString() + ' nodes · ' + s.network.routes.toLocaleString() + ' routes · avg degree ' + s.network.meanDegree.toFixed(1) + ' · ' + Math.round(s.network.connectedShare * 100) + '% connected' + (s.network.orbital ? ' orbital' : '') + '</p>'
+          : '';
+        var substrateLine = (s.uploadedShare || 0) > 0
+          ? '<p><b>Substrate:</b> ' + Math.round(s.uploadedShare * 100) + '% uploaded · ' + Math.round(s.population * (1 - s.uploadedShare)).toLocaleString() + ' biological</p>'
+          : '';
+        var orbitalLine = (s.orbitalCapacity || 0) > 0
+          ? '<p><b>Orbital capacity:</b> ' + s.orbitalCapacity.toLocaleString() + ' people</p>'
+          : '';
         socialLine = populationLine +
           settlementLine +
-          '<p><b>Age structure:</b> ' + Math.round(s.ageStructure.children * 100) + '% children · ' + Math.round(s.ageStructure.working * 100) + '% working age · ' + Math.round(s.ageStructure.elders * 100) + '% elders · ' + s.fertility.toFixed(1) + ' children per woman, life expectancy ' + s.lifeExpectancy.toFixed(0) + ' years</p>' +
+          networkLine +
+          substrateLine +
+          orbitalLine +
+          '<p><b>' + ((s.uploadedShare || 0) > 0 ? 'Biological age structure' : 'Age structure') + ':</b> ' + Math.round(s.ageStructure.children * 100) + '% children · ' + Math.round(s.ageStructure.working * 100) + '% working age · ' + Math.round(s.ageStructure.elders * 100) + '% elders · ' + s.fertility.toFixed(1) + ' children per woman, life expectancy ' + s.lifeExpectancy.toFixed(0) + ' years</p>' +
           '<p><b>Food:</b> ' + s.foodPerCapita.toFixed(2) + '× demand · <b>Adoption:</b> ' + Math.round(s.technologyAccess * 100) + '% technology access · trade connectivity ' + Math.round(s.tradeConnectivity * 100) + '%</p>' +
           (s.branches && s.branches.length ? '<p><b>Paths:</b> ' + s.branches.join(' · ') + '</p>' : '');
       }
@@ -633,7 +660,7 @@ export const renderChronicle = (result: RunResult): string => {
         m.className = 'marker';
         m.style.left = Math.max(0, Math.min(99.5, (nearestIndexForYear(e.year) / maxIndex) * 100)) + '%';
         m.style.background = group.color;
-        m.title = 'Year ' + e.year + ' · ' + e.title;
+        m.title = 'Year ' + e.year + ' · ' + e.title + (e.cause ? ' — ' + e.cause : '');
         m.addEventListener('click', function () { jump(e.year); });
         holder.appendChild(m);
       });
@@ -667,7 +694,9 @@ export const renderChronicle = (result: RunResult): string => {
       var b = document.createElement('button');
       b.className = 'entry';
       b.innerHTML = '<span class="year">y' + e.year + '</span><span>' + e.title +
-        (e.detail ? '<span class="detail">' + e.detail + '</span>' : '') + '</span>';
+        (e.detail ? '<span class="detail">' + e.detail + '</span>' : '') +
+        (e.cause ? '<span class="cause">why: ' + e.cause + '</span>' : '') + '</span>';
+      b.title = 'Jump to year ' + e.year + (e.cause ? ' — ' + e.cause : '');
       b.addEventListener('click', function () { jump(e.year); });
       holder.appendChild(b);
     });

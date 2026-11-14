@@ -48,18 +48,28 @@ not silently change the energy budget, but temporal resolution is genuinely lowe
 After the tick loop, `buildFutureHistory` extends the chronicle from the last simulated
 year to 10 Gyr. This is a coarse future-history model, not a second individual-level
 ecology. It carries population age structure, fertility, life expectancy, literacy,
-institutions, technology adoption, urbanisation, trade connectivity, energy use,
-resource stocks, pollution, biosphere health and off-world population. Carrying capacity
-responds to food, resources, pollution and habitat. Advances in literacy and institutions
-raise research quality; adoption lag means a frontier discovery does not instantly reach
-every settlement. A pair of mutually exclusive paths is chosen from the world's
-political/ecological state (renewable vs extractive energy; open vs centralised
+institutions, technology adoption, urbanisation, a settlement trade network, energy
+use, resource stocks, pollution, biosphere health and off-world population. Carrying
+capacity responds to food, resources, pollution and habitat. Advances in literacy and
+institutions raise research quality; adoption lag means a frontier discovery does not
+instantly reach every settlement. A pair of mutually exclusive paths is chosen from the
+world's political/ecological state (renewable vs extractive energy; open vs centralised
 information), and machine disruption only becomes possible after AI is known.
 
+The trade network is a coarse graph over occupied region cells: each node links to its
+two nearest neighbours, and the resulting route count, mean degree and connected share
+feed trade connectivity. Orbital habitats add their own nodes. Orbital capacity grows
+with closed-loop ecology, asteroid mining and biosphere restoration. Once mind uploading
+is known, a rising share of the population can become uploaded; the chronicle reports
+biological age structure separately from substrate. Future events carry the conditions
+that selected a branch or triggered a crisis, so the ledger shows causes rather than only
+outcomes.
+
 Crises are selected from conditions rather than a calendar: famine from food shortfall,
-epidemics from crowding and weak sanitation, war and revolution from inequality and
-institutions, resource busts from depletion, climate shocks from temperature and
-biosphere stress, and golden ages from capable institutions and open trade. Each frame
+epidemics from crowding, weak sanitation and connectivity, war and revolution from
+inequality and institutions, resource busts from depletion, climate shocks from
+temperature and biosphere stress, and golden ages from capable institutions and open
+trade. Each frame
 contributes research from the living working-age population, scaled by literacy,
 institutions and technology adoption; a technology unlocks only when its research
 threshold is crossed and its prerequisites are known, and receives a discovery event at
@@ -74,7 +84,8 @@ surviving individuals from the historical run.
 `L0 · (1 + 0.08 · massSolar · Gyr)`, surface temperature follows Stefan-Boltzmann scaling,
 and the star leaves the main sequence at `lifetimeGyr`, becoming a red giant. Thresholds at
 47 °C, 100 °C and 150 °C date the moist greenhouse, ocean loss and biosphere collapse. The
-future model drives population to zero once the surface can no longer support it.
+future model drives the surface population to zero once the surface can no longer support
+it; orbital habitats may keep a smaller population alive until their own capacity fails.
 
 First collective discoveries are emitted when a species' knowledge union gains a
 technology: `technology` for practical knowledge and `theory` for mathematics, germ
