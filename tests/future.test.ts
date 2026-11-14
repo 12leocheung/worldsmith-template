@@ -174,6 +174,7 @@ test('society tracks demographic change, adoption, resources and off-world settl
   assert.ok(withOrbitals.orbitalSettlements > 0);
   assert.ok(withOrbitals.orbitalCapacity >= withOrbitals.orbitalPopulation);
   assert.ok(withOrbitals.network.nodes > 0);
+  assert.ok(history.frames.every((frame) => frame.uploadedShare >= 0 && frame.uploadedShare <= 1));
   const orbitalOnly = history.frames.find((frame) => frame.surfacePopulation === 0 && frame.orbitalPopulation > 0);
   if (orbitalOnly) assert.ok(orbitalOnly.network.orbital);
   assert.ok(history.frames.some((frame) => frame.residents.some((resident) => resident.offWorld)));
